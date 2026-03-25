@@ -105,9 +105,19 @@ SlyMail provides a full-featured interface for reading and replying to messages 
 - `unzip` command (for extracting QWK packets)
 - `zip` command (for creating REP packets)
 
-**Windows:**
+**Windows (Visual Studio 2022):**
+- Visual Studio 2022 with the "Desktop development with C++" workload
+- Windows SDK 10.0 (included with VS)
+- No additional libraries required — uses the built-in Win32 Console API for the terminal UI, and either `tar.exe` or PowerShell for QWK/REP packet ZIP handling (see note below)
+
+**Windows (MinGW/MSYS2):**
 - MinGW-w64 or MSYS2 with GCC (C++17 support)
 - Windows Console API (built-in)
+
+> **Note — QWK/REP ZIP handling on Windows:** SlyMail detects at runtime which tool is available and uses the best option:
+>
+> - **`tar.exe` (preferred):** Ships with Windows 10 version 1803 (April 2018 Update) and later, and with all versions of Windows 11. `tar` reads ZIP files by their content rather than their file extension, so `.qwk` packets extract directly and `.rep` packets are created via a temporary `.zip` file that is then renamed. No extra configuration is needed.
+> - **PowerShell (fallback):** If `tar.exe` is not found in the PATH, SlyMail falls back to PowerShell. For extraction it uses the .NET `ZipFile` class (`System.IO.Compression`) rather than `Expand-Archive`, because `Expand-Archive` rejects non-`.zip` file extensions even when the file is a valid ZIP archive. For REP packet creation it uses `Compress-Archive`, again writing to a temporary `.zip` file that is then renamed to `.rep`.
 
 ### Build on Linux/macOS/BSD
 
@@ -132,7 +142,31 @@ sudo make install    # Installs slymail and config to /usr/local/bin/
 sudo make uninstall  # Remove
 ```
 
-### Build on Windows (MinGW)
+### Build on Windows with Visual Studio 2022
+
+Open the solution file in Visual Studio 2022:
+
+```
+vs\SlyMail.sln
+```
+
+Or build from the command line using MSBuild:
+
+```powershell
+# Release build (output in vs\x64\Release\)
+msbuild vs\SlyMail.sln /p:Configuration=Release /p:Platform=x64
+
+# Debug build (output in vs\x64\Debug\)
+msbuild vs\SlyMail.sln /p:Configuration=Debug /p:Platform=x64
+```
+
+This builds two executables:
+- `x64\Release\slymail.exe` — the main QWK reader
+- `x64\Release\config.exe` — the standalone configuration utility
+
+The solution contains two projects (`SlyMail.vcxproj` and `Config.vcxproj`) targeting x64, C++17, with the MSVC v143 toolset.
+
+### Build on Windows (MinGW/MSYS2)
 
 ```bash
 make

@@ -266,14 +266,44 @@ std::unique_ptr<ITerminal> createTerminal();
 // Platform utility functions
 // ============================================================
 
+#if SLYMAIL_WINDOWS
+// Returns true if tar.exe is in the PATH.  Result is cached after the first call.
+inline bool isTarAvailable()
+{
+    static int cached = -1;
+    if (cached < 0)
+    {
+        cached = (system("where tar >NUL 2>&1") == 0) ? 1 : 0;
+    }
+    return cached == 1;
+}
+#endif
+
 // Extract a QWK file (ZIP archive) to a destination directory
 inline std::string extractQwkPacket(const std::string& qwkPath, const std::string& destDir)
 {
-    fs::create_directories(destDir);
 #if SLYMAIL_WINDOWS
-    std::string cmd = "powershell -Command \"Expand-Archive -Path '"
-        + qwkPath + "' -DestinationPath '" + destDir + "' -Force\" 2>NUL";
+    std::string cmd;
+    if (isTarAvailable())
+    {
+        // tar reads ZIP magic bytes and ignores the file extension, so .qwk
+        // files extract fine without any rename.
+        try { fs::remove_all(destDir); } catch (...) {}
+        fs::create_directories(destDir);
+        cmd = "tar -xf \"" + qwkPath + "\" -C \"" + destDir + "\" >NUL 2>&1";
+    }
+    else
+    {
+        // Fallback: PowerShell's Expand-Archive rejects non-.zip extensions,
+        // so use the .NET ZipFile class which works with any file extension.
+        cmd = "powershell -Command \""
+            "if (Test-Path '" + destDir + "') { Remove-Item '" + destDir + "' -Recurse -Force }; "
+            "Add-Type -AssemblyName System.IO.Compression.FileSystem; "
+            "[System.IO.Compression.ZipFile]::ExtractToDirectory('"
+            + qwkPath + "', '" + destDir + "')\" 2>NUL";
+    }
 #else
+    fs::create_directories(destDir);
     std::string cmd = "unzip -o -qq \"" + qwkPath + "\" -d \"" + destDir + "\" 2>/dev/null";
 #endif
     int ret = system(cmd.c_str());
@@ -307,13 +337,43 @@ inline bool createZipArchive(const std::string& zipPath, const std::string& sour
     }
 
 #if SLYMAIL_WINDOWS
-    std::string cmd = "powershell -Command \"Compress-Archive -Path '"
-        + sourceDir + PATH_SEP_STR + "*' -DestinationPath '"
-        + absZipPath + "' -Force\" 2>NUL";
+    // Both tar and Compress-Archive need a .zip output extension to produce a
+    // valid ZIP archive.  Create to a temporary .zip path then rename.
+    std::string tmpZip = absZipPath + ".tmp.zip";
+    try { fs::remove(tmpZip); } catch (...) {}
+
+    std::string cmd;
+    if (isTarAvailable())
+    {
+        // tar -a auto-detects ZIP format from the .zip output extension.
+        cmd = "tar -a -c -f \"" + tmpZip + "\" -C \"" + sourceDir + "\" . >NUL 2>&1";
+    }
+    else
+    {
+        // Fallback: PowerShell Compress-Archive.
+        cmd = "powershell -Command \"Compress-Archive -Path '"
+            + sourceDir + PATH_SEP_STR + "*' -DestinationPath '"
+            + tmpZip + "'\" 2>NUL";
+    }
+
+    if (system(cmd.c_str()) != 0)
+    {
+        return false;
+    }
+    try
+    {
+        fs::rename(tmpZip, absZipPath);
+    }
+    catch (...)
+    {
+        try { fs::remove(tmpZip); } catch (...) {}
+        return false;
+    }
+    return true;
 #else
     std::string cmd = "cd \"" + sourceDir + "\" && zip -j -q \"" + absZipPath + "\" * 2>/dev/null";
-#endif
     return system(cmd.c_str()) == 0;
+#endif
 }
 
 // Get user's config directory for settings

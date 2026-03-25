@@ -33,65 +33,77 @@ EditorStyle showUIModeDialog(EditorStyle currentStyle)
     TermAttr itemAttr   = tAttr(TC_CYAN, TC_BLACK, false);
     TermAttr selAttr    = tAttr(TC_BLUE, TC_WHITE, false);
 
+    bool needFullRedraw = true;
+    int prevCursor = -1;
+
+    // Lambda: draw a single item row
+    auto drawItem = [&](int i)
+    {
+        int y = dlgY + 1 + i;
+        bool isSel = (i == cursor);
+        if (isSel)
+            fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
+        else
+            fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
+        printAt(y, dlgX + 2, labels[i], isSel ? selAttr : itemAttr);
+    };
+
     for (;;)
     {
-        // Draw box
-        g_term->setAttr(borderAttr);
-        g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
-
-        // Title in top border
-        string title = " UI Mode ";
-        int titleX = dlgX + (dlgW - static_cast<int>(title.size()) - 2) / 2;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-        g_term->setAttr(titleAttr);
-        g_term->printStr(dlgY, titleX + 1, title);
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(dlgY, titleX + static_cast<int>(title.size()) + 1,
-                         CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-
-        // Draw items
-        for (int i = 0; i < numChoices; ++i)
+        if (needFullRedraw)
         {
-            int y = dlgY + 1 + i;
-            bool isSel = (i == cursor);
-
-            if (isSel)
-            {
-                fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
-            }
-            else
-            {
-                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
-            }
-
-            TermAttr lbl = isSel ? selAttr : itemAttr;
-            printAt(y, dlgX + 2, labels[i], lbl);
-        }
-
-        // Fill any empty rows between items and help separator
-        for (int r = dlgY + 1 + numChoices; r < dlgY + dlgH - 2; ++r)
-        {
-            fillRow(r, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
-            // Draw side borders
+            // Draw box
             g_term->setAttr(borderAttr);
-            g_term->putCP437(r, dlgX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-            g_term->putCP437(r, dlgX + dlgW - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-        }
+            g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
 
-        // Bottom help line
-        int helpY = dlgY + dlgH - 2;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(helpY, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-        g_term->drawHLine(helpY, dlgX + 1, dlgW - 2);
-        g_term->putCP437(helpY, dlgX + dlgW - 1,
-                         CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-        string helpText = "Enter=OK, ESC=Cancel";
-        int helpX = dlgX + (dlgW - static_cast<int>(helpText.size())) / 2;
-        g_term->setAttr(titleAttr);
-        g_term->printStr(helpY, helpX, helpText);
+            // Title in top border
+            string title = " UI Mode ";
+            int titleX = dlgX + (dlgW - static_cast<int>(title.size()) - 2) / 2;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+            g_term->setAttr(titleAttr);
+            g_term->printStr(dlgY, titleX + 1, title);
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(dlgY, titleX + static_cast<int>(title.size()) + 1,
+                             CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+
+            // Draw all items
+            for (int i = 0; i < numChoices; ++i)
+            {
+                drawItem(i);
+            }
+
+            // Fill any empty rows between items and help separator
+            for (int r = dlgY + 1 + numChoices; r < dlgY + dlgH - 2; ++r)
+            {
+                fillRow(r, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
+                g_term->setAttr(borderAttr);
+                g_term->putCP437(r, dlgX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+                g_term->putCP437(r, dlgX + dlgW - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+            }
+
+            // Bottom help line
+            int helpY = dlgY + dlgH - 2;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(helpY, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+            g_term->drawHLine(helpY, dlgX + 1, dlgW - 2);
+            g_term->putCP437(helpY, dlgX + dlgW - 1,
+                             CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+            string helpText = "Enter=OK, ESC=Cancel";
+            int helpX = dlgX + (dlgW - static_cast<int>(helpText.size())) / 2;
+            g_term->setAttr(titleAttr);
+            g_term->printStr(helpY, helpX, helpText);
+
+            needFullRedraw = false;
+        }
+        else if (cursor != prevCursor)
+        {
+            drawItem(prevCursor);
+            drawItem(cursor);
+        }
 
         g_term->refresh();
+        prevCursor = cursor;
 
         int ch = g_term->getKey();
         switch (ch)
@@ -239,82 +251,41 @@ string showThemeSelector(const string& baseDir, EditorStyle currentStyle)
     int visibleItems = dlgH - 5;
     int scrollOffset = 0;
 
-    for (;;)
+    bool needFullRedraw  = true;
+    int prevCursor       = -1;
+    int prevScrollOffset = -1;
+
+    // Helper: display name for a theme entry
+    auto themeDisplayName = [&](int idx) -> string
     {
-        // Ensure cursor is visible
-        if (cursor < scrollOffset)
-        {
-            scrollOffset = cursor;
-        }
-        if (cursor >= scrollOffset + visibleItems)
-        {
-            scrollOffset = cursor - visibleItems + 1;
-        }
+        string dn = themes[idx];
+        if (dn.size() > 4)
+            dn = dn.substr(0, dn.size() - 4);
+        if (dn.size() >= 16 && dn.substr(0, 16) == "EditorIceColors_")
+            dn = "Ice: " + dn.substr(16);
+        else if (dn.size() >= 16 && dn.substr(0, 16) == "EditorDCTColors_")
+            dn = "DCT: " + dn.substr(16);
+        return dn;
+    };
 
-        // Draw box
-        g_term->setAttr(borderAttr);
-        g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
+    // Lambda: draw a single theme row
+    auto drawThemeRow = [&](int idx)
+    {
+        if (idx < scrollOffset || idx >= scrollOffset + visibleItems) return;
+        if (idx < 0 || idx >= static_cast<int>(themes.size())) return;
+        int y = dlgY + 3 + (idx - scrollOffset);
+        bool isSel = (idx == cursor);
+        if (isSel)
+            fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
+        else
+            fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
+        printAt(y, dlgX + 2, truncateStr(themeDisplayName(idx), dlgW - 4),
+                isSel ? selAttr : itemAttr);
+    };
 
-        // Title in top border
-        string title = " Select Theme ";
-        int titleX = dlgX + (dlgW - static_cast<int>(title.size()) - 2) / 2;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-        g_term->setAttr(titleAttr);
-        g_term->printStr(dlgY, titleX + 1, title);
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(dlgY, titleX + static_cast<int>(title.size()) + 1,
-                         CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-
-        // Header
-        int headerY = dlgY + 1;
-        g_term->setAttr(titleAttr);
-        g_term->printStr(headerY, dlgX + 2, "Theme File");
-
-        // Separator
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(headerY + 1, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-        g_term->drawHLine(headerY + 1, dlgX + 1, dlgW - 2);
-        g_term->putCP437(headerY + 1, dlgX + dlgW - 1,
-                         CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-
-        // Items
-        for (int i = 0; i < visibleItems && i + scrollOffset < static_cast<int>(themes.size()); ++i)
-        {
-            int idx = i + scrollOffset;
-            int y = dlgY + 3 + i;
-            bool isSel = (idx == cursor);
-
-            if (isSel)
-            {
-                fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
-            }
-            else
-            {
-                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
-            }
-
-            TermAttr lbl = isSel ? selAttr : itemAttr;
-
-            // Strip prefix and .ini for display
-            string displayName = themes[idx];
-            if (displayName.size() > 4)
-            {
-                displayName = displayName.substr(0, displayName.size() - 4);
-            }
-            // Strip EditorIceColors_ or EditorDCTColors_ prefix
-            if (displayName.substr(0, 16) == "EditorIceColors_")
-            {
-                displayName = "Ice: " + displayName.substr(16);
-            }
-            else if (displayName.substr(0, 16) == "EditorDCTColors_")
-            {
-                displayName = "DCT: " + displayName.substr(16);
-            }
-            printAt(y, dlgX + 2, truncateStr(displayName, dlgW - 4), lbl);
-        }
-
-        // Scrollbar if content overflows
+    // Lambda: draw scrollbar
+    auto drawThemeSB = [&]()
+    {
         int totalThemes = static_cast<int>(themes.size());
         if (totalThemes > visibleItems)
         {
@@ -322,20 +293,79 @@ string showThemeSelector(const string& baseDir, EditorStyle currentStyle)
                          tAttr(TC_BLACK, TC_BLACK, true),
                          tAttr(TC_WHITE, TC_BLACK, true));
         }
+    };
 
-        // Bottom help
-        int helpY = dlgY + dlgH - 2;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(helpY, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-        g_term->drawHLine(helpY, dlgX + 1, dlgW - 2);
-        g_term->putCP437(helpY, dlgX + dlgW - 1,
-                         CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-        string helpText = "Up, Dn, Enter=Select, ESC/Q=Cancel";
-        int helpX = dlgX + (dlgW - static_cast<int>(helpText.size())) / 2;
-        g_term->setAttr(titleAttr);
-        g_term->printStr(helpY, helpX, helpText);
+    for (;;)
+    {
+        // Clamp scroll
+        if (cursor < scrollOffset)
+            scrollOffset = cursor;
+        if (cursor >= scrollOffset + visibleItems)
+            scrollOffset = cursor - visibleItems + 1;
+
+        bool scrollChanged = (scrollOffset != prevScrollOffset);
+
+        if (needFullRedraw || scrollChanged)
+        {
+            // Draw box
+            g_term->setAttr(borderAttr);
+            g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
+
+            // Title in top border
+            string title = " Select Theme ";
+            int titleX = dlgX + (dlgW - static_cast<int>(title.size()) - 2) / 2;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+            g_term->setAttr(titleAttr);
+            g_term->printStr(dlgY, titleX + 1, title);
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(dlgY, titleX + static_cast<int>(title.size()) + 1,
+                             CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+
+            // Header
+            int headerY = dlgY + 1;
+            g_term->setAttr(titleAttr);
+            g_term->printStr(headerY, dlgX + 2, "Theme File");
+
+            // Separator
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(headerY + 1, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+            g_term->drawHLine(headerY + 1, dlgX + 1, dlgW - 2);
+            g_term->putCP437(headerY + 1, dlgX + dlgW - 1,
+                             CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+
+            // All visible items
+            for (int i = 0; i < visibleItems && i + scrollOffset < static_cast<int>(themes.size()); ++i)
+            {
+                drawThemeRow(scrollOffset + i);
+            }
+
+            drawThemeSB();
+
+            // Bottom help
+            int helpY = dlgY + dlgH - 2;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(helpY, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+            g_term->drawHLine(helpY, dlgX + 1, dlgW - 2);
+            g_term->putCP437(helpY, dlgX + dlgW - 1,
+                             CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+            string helpText = "Up, Dn, Enter=Select, ESC/Q=Cancel";
+            int helpX = dlgX + (dlgW - static_cast<int>(helpText.size())) / 2;
+            g_term->setAttr(titleAttr);
+            g_term->printStr(helpY, helpX, helpText);
+
+            needFullRedraw = false;
+        }
+        else if (cursor != prevCursor)
+        {
+            drawThemeRow(prevCursor);
+            drawThemeRow(cursor);
+            drawThemeSB();
+        }
 
         g_term->refresh();
+        prevCursor       = cursor;
+        prevScrollOffset = scrollOffset;
 
         int ch = g_term->getKey();
         switch (ch)
@@ -416,94 +446,52 @@ string showDictionarySelector(const string& baseDir,
 
     int visibleItems = dlgH - 5;
     int scrollOffset = 0;
+    int checkCol     = dlgX + dlgW - 8;
 
-    for (;;)
+    bool needFullRedraw  = true;
+    int prevCursor       = -1;
+    int prevScrollOffset = -1;
+
+    // Helper: display name for a dictionary entry
+    auto dictDisplayName = [&](int idx) -> string
     {
-        // Ensure cursor is visible
-        if (cursor < scrollOffset)
+        string dn = dicts[idx];
+        if (dn.size() > 4) dn = dn.substr(0, dn.size() - 4);
+        if (dn.size() >= 11 && dn.substr(0, 11) == "dictionary_")
+            dn = dn.substr(11);
+        return dn;
+    };
+
+    // Lambda: draw a single dictionary row
+    auto drawDictRow = [&](int idx)
+    {
+        if (idx < scrollOffset || idx >= scrollOffset + visibleItems) return;
+        if (idx < 0 || idx >= static_cast<int>(dicts.size())) return;
+        int y = dlgY + 3 + (idx - scrollOffset);
+        bool isSel = (idx == cursor);
+        if (isSel)
+            fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
+        else
+            fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
+        TermAttr lbl = isSel ? selAttr : itemAttr;
+        TermAttr chk = isSel ? selCheckAt : checkAttr;
+        printAt(y, dlgX + 2, truncateStr(dictDisplayName(idx), dlgW - 16), lbl);
+        if (selected[idx])
         {
-            scrollOffset = cursor;
+            g_term->setAttr(chk);
+            g_term->printStr(y, checkCol, "[");
+            g_term->putCP437(y, checkCol + 1, CP437_CHECK_MARK);
+            g_term->printStr(y, checkCol + 2, "]");
         }
-        if (cursor >= scrollOffset + visibleItems)
+        else
         {
-            scrollOffset = cursor - visibleItems + 1;
+            printAt(y, checkCol, "[ ]", chk);
         }
+    };
 
-        // Draw box
-        g_term->setAttr(borderAttr);
-        g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
-
-        // Title in top border
-        string title = " Select Dictionaries ";
-        int titleX = dlgX + (dlgW - static_cast<int>(title.size()) - 2) / 2;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-        g_term->setAttr(titleAttr);
-        g_term->printStr(dlgY, titleX + 1, title);
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(dlgY, titleX + static_cast<int>(title.size()) + 1,
-                         CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-
-        // Header
-        int headerY = dlgY + 1;
-        g_term->setAttr(titleAttr);
-        g_term->printStr(headerY, dlgX + 2, "Dictionary");
-        g_term->printStr(headerY, dlgX + dlgW - 12, "Selected");
-
-        // Separator
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(headerY + 1, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-        g_term->drawHLine(headerY + 1, dlgX + 1, dlgW - 2);
-        g_term->putCP437(headerY + 1, dlgX + dlgW - 1,
-                         CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-
-        // Items
-        int checkCol = dlgX + dlgW - 8;
-        for (int i = 0; i < visibleItems && i + scrollOffset < static_cast<int>(dicts.size()); ++i)
-        {
-            int idx = i + scrollOffset;
-            int y = dlgY + 3 + i;
-            bool isSel = (idx == cursor);
-
-            if (isSel)
-            {
-                fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
-            }
-            else
-            {
-                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
-            }
-
-            TermAttr lbl = isSel ? selAttr : itemAttr;
-            TermAttr chk = isSel ? selCheckAt : checkAttr;
-
-            // Dictionary name (strip dictionary_ prefix and .txt suffix for display)
-            string displayName = dicts[idx];
-            if (displayName.size() > 4)
-            {
-                displayName = displayName.substr(0, displayName.size() - 4);
-            }
-            if (displayName.substr(0, 11) == "dictionary_")
-            {
-                displayName = displayName.substr(11);
-            }
-            printAt(y, dlgX + 2, truncateStr(displayName, dlgW - 16), lbl);
-
-            // Checkbox - use putCP437 for check mark to fix ncurses display
-            if (selected[idx])
-            {
-                g_term->setAttr(chk);
-                g_term->printStr(y, checkCol, "[");
-                g_term->putCP437(y, checkCol + 1, CP437_CHECK_MARK);
-                g_term->printStr(y, checkCol + 2, "]");
-            }
-            else
-            {
-                printAt(y, checkCol, "[ ]", chk);
-            }
-        }
-
-        // Scrollbar if content overflows
+    // Lambda: draw scrollbar
+    auto drawDictSB = [&]()
+    {
         int totalDicts = static_cast<int>(dicts.size());
         if (totalDicts > visibleItems)
         {
@@ -511,20 +499,80 @@ string showDictionarySelector(const string& baseDir,
                          tAttr(TC_BLACK, TC_BLACK, true),
                          tAttr(TC_WHITE, TC_BLACK, true));
         }
+    };
 
-        // Bottom help
-        int helpY = dlgY + dlgH - 2;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(helpY, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-        g_term->drawHLine(helpY, dlgX + 1, dlgW - 2);
-        g_term->putCP437(helpY, dlgX + dlgW - 1,
-                         CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-        string helpText = "Up, Dn, Enter/Space=Toggle, ESC/Q=Done";
-        int helpX = dlgX + (dlgW - static_cast<int>(helpText.size())) / 2;
-        g_term->setAttr(titleAttr);
-        g_term->printStr(helpY, helpX, helpText);
+    for (;;)
+    {
+        // Clamp scroll
+        if (cursor < scrollOffset)
+            scrollOffset = cursor;
+        if (cursor >= scrollOffset + visibleItems)
+            scrollOffset = cursor - visibleItems + 1;
+
+        bool scrollChanged = (scrollOffset != prevScrollOffset);
+
+        if (needFullRedraw || scrollChanged)
+        {
+            // Draw box
+            g_term->setAttr(borderAttr);
+            g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
+
+            // Title in top border
+            string title = " Select Dictionaries ";
+            int titleX = dlgX + (dlgW - static_cast<int>(title.size()) - 2) / 2;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+            g_term->setAttr(titleAttr);
+            g_term->printStr(dlgY, titleX + 1, title);
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(dlgY, titleX + static_cast<int>(title.size()) + 1,
+                             CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+
+            // Header
+            int headerY = dlgY + 1;
+            g_term->setAttr(titleAttr);
+            g_term->printStr(headerY, dlgX + 2, "Dictionary");
+            g_term->printStr(headerY, dlgX + dlgW - 12, "Selected");
+
+            // Separator
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(headerY + 1, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+            g_term->drawHLine(headerY + 1, dlgX + 1, dlgW - 2);
+            g_term->putCP437(headerY + 1, dlgX + dlgW - 1,
+                             CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+
+            // All visible items
+            for (int i = 0; i < visibleItems && i + scrollOffset < static_cast<int>(dicts.size()); ++i)
+            {
+                drawDictRow(scrollOffset + i);
+            }
+
+            drawDictSB();
+
+            // Bottom help
+            int helpY = dlgY + dlgH - 2;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(helpY, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+            g_term->drawHLine(helpY, dlgX + 1, dlgW - 2);
+            g_term->putCP437(helpY, dlgX + dlgW - 1,
+                             CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+            string helpText = "Up, Dn, Enter/Space=Toggle, ESC/Q=Done";
+            int helpX = dlgX + (dlgW - static_cast<int>(helpText.size())) / 2;
+            g_term->setAttr(titleAttr);
+            g_term->printStr(helpY, helpX, helpText);
+
+            needFullRedraw = false;
+        }
+        else if (cursor != prevCursor)
+        {
+            drawDictRow(prevCursor);
+            drawDictRow(cursor);
+            drawDictSB();
+        }
 
         g_term->refresh();
+        prevCursor       = cursor;
+        prevScrollOffset = scrollOffset;
 
         int ch = g_term->getKey();
         switch (ch)
@@ -550,6 +598,9 @@ string showDictionarySelector(const string& baseDir,
             case TK_ENTER:
             case ' ':
                 selected[cursor] = !selected[cursor];
+                // Redraw just the toggled row (checkbox state changed)
+                drawDictRow(cursor);
+                g_term->refresh();
                 break;
             case TK_ESCAPE:
             case 'q':
@@ -620,8 +671,53 @@ bool showEditorSettings(Settings& settings, const string& baseDir)
     // Checkmark column position (matching SlyEdit's format: "%-46s [ ]")
     int checkCol = dlgX + 48;
 
+    bool needFullRedraw = true;
+    int prevSelected2   = -1;  // separate from outer 'selected' to avoid name clash
+
+    // Lambda: draw a single editor-settings row
+    auto drawESetRow = [&](int i)
+    {
+        if (i < 0 || i >= itemCount) return;
+        int y = dlgY + 1 + i;
+        bool isSel = (i == selected);
+        if (isSel)
+            fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
+        else
+            fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
+        TermAttr lbl = isSel ? selAttr : itemAttr;
+        printAt(y, dlgX + 2, truncateStr(items[i].label, 46), lbl);
+        if (items[i].type == SettingType::Toggle)
+        {
+            bool val = false;
+            switch (items[i].id)
+            {
+                case ESET_TAGLINES:          val = settings.taglines; break;
+                case ESET_PROMPT_SPELL:      val = settings.promptSpellCheck; break;
+                case ESET_WRAP_QUOTES:       val = settings.wrapQuoteLines; break;
+                case ESET_QUOTE_INITIALS:    val = settings.quoteWithInitials; break;
+                case ESET_INDENT_INITIALS:   val = settings.indentQuoteInitials; break;
+                case ESET_TRIM_QUOTE_SPACES: val = settings.trimQuoteSpaces; break;
+                default: break;
+            }
+            TermAttr chk = isSel ? selAttr : checkAttr;
+            if (val)
+            {
+                g_term->setAttr(chk);
+                g_term->printStr(y, checkCol, "[");
+                g_term->putCP437(y, checkCol + 1, CP437_CHECK_MARK);
+                g_term->printStr(y, checkCol + 2, "]");
+            }
+            else
+            {
+                printAt(y, checkCol, "[ ]", chk);
+            }
+        }
+    };
+
     for (;;)
     {
+        if (needFullRedraw)
+        {
         // Draw outer box
         g_term->setAttr(borderAttr);
         g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
@@ -647,61 +743,10 @@ bool showEditorSettings(Settings& settings, const string& baseDir)
         string pageText = " Page 1 of 1 ";
         g_term->printStr(dlgY, dlgX + dlgW - static_cast<int>(pageText.size()) - 1, pageText);
 
-        // Draw items
+        // Draw all items
         for (int i = 0; i < itemCount; ++i)
         {
-            int y = dlgY + 1 + i;
-            bool isSel = (i == selected);
-
-            // Clear the row interior
-            if (isSel)
-            {
-                fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
-            }
-            else
-            {
-                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
-            }
-
-            TermAttr lbl = isSel ? selAttr : itemAttr;
-
-            // Item label
-            printAt(y, dlgX + 2, truncateStr(items[i].label, 46), lbl);
-
-            // For Choice type, show current value after label
-            if (items[i].type == SettingType::Choice && items[i].id == ESET_UI_MODE)
-            {
-                // Do nothing extra - label says "Choose UI mode"
-            }
-
-            // For Toggle type, show checkbox using putCP437 for check mark
-            if (items[i].type == SettingType::Toggle)
-            {
-                bool val = false;
-                switch (items[i].id)
-                {
-                    case ESET_TAGLINES:        val = settings.taglines; break;
-                    case ESET_PROMPT_SPELL:     val = settings.promptSpellCheck; break;
-                    case ESET_WRAP_QUOTES:      val = settings.wrapQuoteLines; break;
-                    case ESET_QUOTE_INITIALS:   val = settings.quoteWithInitials; break;
-                    case ESET_INDENT_INITIALS:  val = settings.indentQuoteInitials; break;
-                    case ESET_TRIM_QUOTE_SPACES: val = settings.trimQuoteSpaces; break;
-                    default: break;
-                }
-
-                TermAttr chk = isSel ? selAttr : checkAttr;
-                if (val)
-                {
-                    g_term->setAttr(chk);
-                    g_term->printStr(y, checkCol, "[");
-                    g_term->putCP437(y, checkCol + 1, CP437_CHECK_MARK);
-                    g_term->printStr(y, checkCol + 2, "]");
-                }
-                else
-                {
-                    printAt(y, checkCol, "[ ]", chk);
-                }
-            }
+            drawESetRow(i);
         }
 
         // Bottom separator with help text
@@ -723,7 +768,16 @@ bool showEditorSettings(Settings& settings, const string& baseDir)
         g_term->putCP437(helpY, helpTextX + static_cast<int>(helpText.size()) + 1,
                          CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
 
+            needFullRedraw = false;
+        }
+        else if (selected != prevSelected2)
+        {
+            drawESetRow(prevSelected2);
+            drawESetRow(selected);
+        }
+
         g_term->refresh();
+        prevSelected2 = selected;
 
         int ch = g_term->getKey();
         switch (ch)
@@ -765,16 +819,14 @@ bool showEditorSettings(Settings& settings, const string& baseDir)
                             settings.editorStyle = newStyle;
                             changed = true;
                         }
-                        // Clear screen area to ensure clean redraw after sub-dialog
-                        for (int r = 0; r < g_term->getRows(); ++r)
-                        {
-                            fillRow(r, tAttr(TC_BLACK, TC_BLACK, false), 0, g_term->getCols());
-                        }
+                        needFullRedraw = true;
                         break;
                     }
                     case ESET_TAGLINES:
                         settings.taglines = !settings.taglines;
                         changed = true;
+                        drawESetRow(selected);
+                        g_term->refresh();
                         break;
                     case ESET_SPELL_DICT:
                     {
@@ -785,32 +837,38 @@ bool showEditorSettings(Settings& settings, const string& baseDir)
                             settings.spellDictionaries = result;
                             changed = true;
                         }
-                        // Clear screen area to ensure clean redraw after sub-dialog
-                        for (int r = 0; r < g_term->getRows(); ++r)
-                        {
-                            fillRow(r, tAttr(TC_BLACK, TC_BLACK, false), 0, g_term->getCols());
-                        }
+                        needFullRedraw = true;
                         break;
                     }
                     case ESET_PROMPT_SPELL:
                         settings.promptSpellCheck = !settings.promptSpellCheck;
                         changed = true;
+                        drawESetRow(selected);
+                        g_term->refresh();
                         break;
                     case ESET_WRAP_QUOTES:
                         settings.wrapQuoteLines = !settings.wrapQuoteLines;
                         changed = true;
+                        drawESetRow(selected);
+                        g_term->refresh();
                         break;
                     case ESET_QUOTE_INITIALS:
                         settings.quoteWithInitials = !settings.quoteWithInitials;
                         changed = true;
+                        drawESetRow(selected);
+                        g_term->refresh();
                         break;
                     case ESET_INDENT_INITIALS:
                         settings.indentQuoteInitials = !settings.indentQuoteInitials;
                         changed = true;
+                        drawESetRow(selected);
+                        g_term->refresh();
                         break;
                     case ESET_TRIM_QUOTE_SPACES:
                         settings.trimQuoteSpaces = !settings.trimQuoteSpaces;
                         changed = true;
+                        drawESetRow(selected);
+                        g_term->refresh();
                         break;
                     case ESET_THEME_FILE:
                     {
@@ -839,11 +897,7 @@ bool showEditorSettings(Settings& settings, const string& baseDir)
                             }
                             changed = true;
                         }
-                        // Clear screen area to ensure clean redraw after sub-dialog
-                        for (int r = 0; r < g_term->getRows(); ++r)
-                        {
-                            fillRow(r, tAttr(TC_BLACK, TC_BLACK, false), 0, g_term->getCols());
-                        }
+                        needFullRedraw = true;
                         break;
                     }
                 }
@@ -877,10 +931,34 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
     int selected = 0;
     bool changed = false;
 
+    // Dialog layout (fixed for this terminal size)
+    int dlgW = 73;
+    if (dlgW > g_term->getCols() - 4) dlgW = g_term->getCols() - 4;
+
+    int visibleItems = g_term->getRows() - 10;
+    const int itemCount = 6;
+    if (visibleItems > itemCount) visibleItems = itemCount;
+    int dlgH = visibleItems + 5;
+    int dlgY = (g_term->getRows() - dlgH) / 2;
+    int dlgX = (g_term->getCols() - dlgW) / 2;
+    int checkCol = dlgX + 48;
+
+    static int scrollOffset = 0;
+
+    TermAttr borderAttr = tAttr(TC_GREEN, TC_BLACK, false);
+    TermAttr titleAttr  = tAttr(TC_BLUE, TC_BLACK, true);
+    TermAttr itemAttr   = tAttr(TC_CYAN, TC_BLACK, false);
+    TermAttr checkAttr  = tAttr(TC_GREEN, TC_BLACK, true);
+    TermAttr selAttr    = tAttr(TC_BLUE, TC_WHITE, false);
+
+    bool needFullRedraw  = true;
+    int prevSelected     = -1;
+    int prevScrollOffset = -1;
+
     while (true)
     {
+        // Build items fresh each iteration (values reflect current settings)
         vector<SettingItem> items;
-        // Reader-only settings
         items.push_back({"Show kludge lines",
                          settings.showKludgeLines ? "Y" : "N", true, false, SET_SHOW_KLUDGE});
         items.push_back({"Show tear/origin lines",
@@ -895,93 +973,23 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                          settings.replyDir.empty() ? "(current dir)" : settings.replyDir,
                          false, false, SET_REPLY_DIR});
 
-        int itemCount = static_cast<int>(items.size());
+        // Clamp scroll
+        if (selected < scrollOffset) scrollOffset = selected;
+        if (selected >= scrollOffset + visibleItems) scrollOffset = selected - visibleItems + 1;
 
-        // Dialog dimensions
-        int dlgW = 73;
-        if (dlgW > g_term->getCols() - 4)
+        // Lambda: draw a single row
+        auto drawSSDRow = [&](int idx)
         {
-            dlgW = g_term->getCols() - 4;
-        }
-        int visibleItems = g_term->getRows() - 10;
-        if (visibleItems > itemCount)
-        {
-            visibleItems = itemCount;
-        }
-        int dlgH = visibleItems + 5;
-        int dlgY = (g_term->getRows() - dlgH) / 2;
-        int dlgX = (g_term->getCols() - dlgW) / 2;
-
-        // Scrolling
-        static int scrollOffset = 0;
-        if (selected < scrollOffset)
-        {
-            scrollOffset = selected;
-        }
-        if (selected >= scrollOffset + visibleItems)
-        {
-            scrollOffset = selected - visibleItems + 1;
-        }
-
-        // Colors matching SlyEdit's ChoiceScrollbox
-        TermAttr borderAttr = tAttr(TC_GREEN, TC_BLACK, false);
-        TermAttr titleAttr  = tAttr(TC_BLUE, TC_BLACK, true);
-        TermAttr itemAttr   = tAttr(TC_CYAN, TC_BLACK, false);
-        TermAttr checkAttr  = tAttr(TC_GREEN, TC_BLACK, true);
-        TermAttr selAttr    = tAttr(TC_BLUE, TC_WHITE, false);
-        int checkCol = dlgX + 48;
-
-        // Draw box
-        g_term->setAttr(borderAttr);
-        g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
-
-        // Title with T-characters
-        string title = " Reader Settings ";
-        int titleX = dlgX + 3;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-        g_term->setAttr(titleAttr);
-        g_term->printStr(dlgY, titleX + 1, title);
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(dlgY, titleX + static_cast<int>(title.size()) + 1,
-                         CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-
-        // "Enabled" and page info
-        string enabledText = " Enabled ";
-        int enabledX = dlgX + dlgW - 24;
-        g_term->setAttr(titleAttr);
-        g_term->printStr(dlgY, enabledX, enabledText);
-
-        int totalPages = (itemCount + visibleItems - 1) / visibleItems;
-        int currentPage = (scrollOffset / visibleItems) + 1;
-        string pageText = " Page " + std::to_string(currentPage) + " of "
-                              + std::to_string(totalPages) + " ";
-        g_term->printStr(dlgY, dlgX + dlgW - static_cast<int>(pageText.size()) - 1, pageText);
-
-        // Draw items
-        for (int i = 0; i < visibleItems; ++i)
-        {
-            int idx = i + scrollOffset;
-            if (idx >= itemCount)
-            {
-                break;
-            }
-            int y = dlgY + 1 + i;
+            if (idx < scrollOffset || idx >= scrollOffset + visibleItems) return;
+            if (idx < 0 || idx >= itemCount) return;
+            int y = dlgY + 1 + (idx - scrollOffset);
             bool isSel = (idx == selected);
-
             if (isSel)
-            {
                 fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
-            }
             else
-            {
                 fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
-            }
-
             TermAttr lbl = isSel ? selAttr : itemAttr;
-
             printAt(y, dlgX + 2, truncateStr(items[idx].label, 46), lbl);
-
             if (items[idx].isBool)
             {
                 TermAttr chk = isSel ? selAttr : checkAttr;
@@ -997,50 +1005,101 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                     printAt(y, checkCol, "[ ]", chk);
                 }
             }
-        }
+            else
+            {
+                // Non-bool: show current value (e.g. reply dir)
+                printAt(y, dlgX + 48, truncateStr(items[idx].value, dlgW - 50), lbl);
+            }
+        };
 
-        // Scrollbar if content overflows
-        if (itemCount > visibleItems)
+        // Lambda: draw scrollbar
+        auto drawSSDSB = [&]()
         {
-            drawScrollbar(dlgY + 1, visibleItems, selected, itemCount,
-                         tAttr(TC_BLACK, TC_BLACK, true),
-                         tAttr(TC_WHITE, TC_BLACK, true));
+            if (itemCount > visibleItems)
+            {
+                drawScrollbar(dlgY + 1, visibleItems, selected, itemCount,
+                             tAttr(TC_BLACK, TC_BLACK, true),
+                             tAttr(TC_WHITE, TC_BLACK, true));
+            }
+        };
+
+        bool scrollChanged = (scrollOffset != prevScrollOffset);
+
+        if (needFullRedraw || scrollChanged)
+        {
+            // Draw box
+            g_term->setAttr(borderAttr);
+            g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
+
+            // Title with T-characters
+            string title = " Reader Settings ";
+            int titleX = dlgX + 3;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+            g_term->setAttr(titleAttr);
+            g_term->printStr(dlgY, titleX + 1, title);
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(dlgY, titleX + static_cast<int>(title.size()) + 1,
+                             CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+
+            // "Enabled" and page info
+            int enabledX = dlgX + dlgW - 24;
+            g_term->setAttr(titleAttr);
+            g_term->printStr(dlgY, enabledX, " Enabled ");
+
+            int totalPages  = (itemCount + visibleItems - 1) / visibleItems;
+            int currentPage = (scrollOffset / visibleItems) + 1;
+            string pageText = " Page " + std::to_string(currentPage) + " of "
+                                  + std::to_string(totalPages) + " ";
+            g_term->printStr(dlgY, dlgX + dlgW - static_cast<int>(pageText.size()) - 1, pageText);
+
+            // All visible items
+            for (int i = 0; i < visibleItems && i + scrollOffset < itemCount; ++i)
+            {
+                drawSSDRow(scrollOffset + i);
+            }
+
+            drawSSDSB();
+
+            // Bottom separator with help text
+            int helpY = dlgY + dlgH - 2;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(helpY, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+            g_term->drawHLine(helpY, dlgX + 1, dlgW - 2);
+            g_term->putCP437(helpY, dlgX + dlgW - 1,
+                             CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+
+            string helpText = "Up, Dn, Enter=Select/toggle, S=Save, ESC/Q=Close";
+            int helpTextX = dlgX + 2;
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(helpY, helpTextX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+            g_term->setAttr(titleAttr);
+            g_term->printStr(helpY, helpTextX + 1, helpText);
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(helpY, helpTextX + static_cast<int>(helpText.size()) + 1,
+                             CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+
+            needFullRedraw = false;
         }
-
-        // Bottom separator with help text
-        int helpY = dlgY + dlgH - 2;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(helpY, dlgX, CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
-        g_term->drawHLine(helpY, dlgX + 1, dlgW - 2);
-        g_term->putCP437(helpY, dlgX + dlgW - 1,
-                         CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-
-        string helpText = "Up, Dn, Enter=Select/toggle, S=Save, ESC/Q=Close";
-        int helpTextX = dlgX + 2;
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(helpY, helpTextX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
-        g_term->setAttr(titleAttr);
-        g_term->printStr(helpY, helpTextX + 1, helpText);
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(helpY, helpTextX + static_cast<int>(helpText.size()) + 1,
-                         CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+        else if (selected != prevSelected)
+        {
+            drawSSDRow(prevSelected);
+            drawSSDRow(selected);
+            drawSSDSB();
+        }
 
         g_term->refresh();
+        prevSelected     = selected;
+        prevScrollOffset = scrollOffset;
 
         int ch = g_term->getKey();
         switch (ch)
         {
             case TK_UP:
-                if (selected > 0)
-                {
-                    --selected;
-                }
+                if (selected > 0) --selected;
                 break;
             case TK_DOWN:
-                if (selected < itemCount - 1)
-                {
-                    ++selected;
-                }
+                if (selected < itemCount - 1) ++selected;
                 break;
             case TK_HOME:
                 selected = 0;
@@ -1051,17 +1110,11 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                 break;
             case TK_PGUP:
                 selected -= visibleItems;
-                if (selected < 0)
-                {
-                    selected = 0;
-                }
+                if (selected < 0) selected = 0;
                 break;
             case TK_PGDN:
                 selected += visibleItems;
-                if (selected >= itemCount)
-                {
-                    selected = itemCount - 1;
-                }
+                if (selected >= itemCount) selected = itemCount - 1;
                 break;
             case TK_ENTER:
             case ' ':
@@ -1070,22 +1123,27 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                     case SET_SHOW_KLUDGE:
                         settings.showKludgeLines = !settings.showKludgeLines;
                         changed = true;
+                        needFullRedraw = true;  // items rebuilt next iter with new value
                         break;
                     case SET_SHOW_TEAR:
                         settings.showTearLine = !settings.showTearLine;
                         changed = true;
+                        needFullRedraw = true;
                         break;
                     case SET_USE_SCROLLBAR:
                         settings.useScrollbar = !settings.useScrollbar;
                         changed = true;
+                        needFullRedraw = true;
                         break;
                     case SET_STRIP_ANSI:
                         settings.stripAnsi = !settings.stripAnsi;
                         changed = true;
+                        needFullRedraw = true;
                         break;
                     case SET_REVERSE_ORDER:
                         settings.reverseOrder = !settings.reverseOrder;
                         changed = true;
+                        needFullRedraw = true;
                         break;
                     case SET_REPLY_DIR:
                     {
@@ -1098,6 +1156,7 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                             settings.replyDir = val;
                             changed = true;
                         }
+                        needFullRedraw = true;
                         break;
                     }
                 }

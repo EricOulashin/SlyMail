@@ -10,71 +10,36 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
 {
     int selected = 0;
     int scrollOffset = 0;
+    bool needFullRedraw = true;
+    int prevSelected    = -1;
+    int prevScrollOffset = -1;
 
     while (true)
     {
-        g_term->clear();
+        int COLS = g_term->getCols();
+        int ROWS = g_term->getRows();
 
-        // Title: DDMsgReader-style bordered header
-        TermAttr borderAttr = tAttr(TC_BLUE, TC_BLACK, true);
-        TermAttr titleAttr  = tAttr(TC_GREEN, TC_BLACK, true);
+        const int numW   = 6;
+        const int countW = 8;
+        int nameW        = COLS - numW - countW - 4;
+        const int listTop = 4;
+        int listHeight   = ROWS - 6;
+        int totalConfs   = static_cast<int>(packet.conferences.size());
 
-        // Top border with BBS name
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(0, 0, CP437_BOX_DRAWINGS_UPPER_LEFT_SINGLE);
-        g_term->drawHLine(0, 1, g_term->getCols() - 2);
-        g_term->putCP437(0, g_term->getCols() - 1, CP437_BOX_DRAWINGS_UPPER_RIGHT_SINGLE);
-        printAt(0, 4, " " + packet.info.bbsName + " ", titleAttr);
-
-        // Packet info inside border
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(1, 0, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-        g_term->putCP437(1, g_term->getCols() - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-        printAt(1, 2, "Sysop: ", tAttr(TC_CYAN, TC_BLACK, false));
-        printAt(1, 9, packet.info.sysopName, tAttr(TC_WHITE, TC_BLACK, true));
-        string userInfo = "User: " + packet.info.userName;
-        printAt(1, g_term->getCols() / 2, userInfo, tAttr(TC_CYAN, TC_BLACK, false));
-        string totalStr = std::to_string(packet.totalMessages()) + " msgs";
-        printAt(1, g_term->getCols() - static_cast<int>(totalStr.size()) - 3, totalStr,
-                tAttr(TC_GREEN, TC_BLACK, false));
-
-        // Bottom of info area
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(2, 0, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
-        g_term->drawHLine(2, 1, g_term->getCols() - 2);
-        g_term->putCP437(2, g_term->getCols() - 1, CP437_BOX_DRAWINGS_LOWER_RIGHT_SINGLE);
-
-        // Column headers (DDMsgReader style)
-        int headerY = 3;
-        int numW = 6;
-        int countW = 8;
-        int nameW = g_term->getCols() - numW - countW - 4;
-
-        TermAttr colAttr = tAttr(TC_CYAN, TC_BLACK, true);
-        printAt(headerY, 1, padStr("Conf#", numW), colAttr);
-        printAt(headerY, 1 + numW + 1, padStr("Conference Name", nameW), colAttr);
-        printAt(headerY, g_term->getCols() - countW - 1, padStr("Msgs", countW), colAttr);
-
-        // Conference list
-        int listTop = 4;
-        int listHeight = g_term->getRows() - 6;
-        int totalConfs = static_cast<int>(packet.conferences.size());
-
+        // Keep selected in view
         if (selected < scrollOffset)
-        {
             scrollOffset = selected;
-        }
         if (selected >= scrollOffset + listHeight)
-        {
             scrollOffset = selected - listHeight + 1;
-        }
 
-        for (int i = 0; i < listHeight && (scrollOffset + i) < totalConfs; ++i)
-        {
-            int idx = scrollOffset + i;
-            const auto& conf = packet.conferences[idx];
-            int y = listTop + i;
+        // ---- Per-row drawing lambda (covers both selected and unselected states).
+        // Always calls fillRow so the background is correct for partial updates.
+        auto drawRow = [&](int idx) {
+            if (idx < 0 || idx >= totalConfs) return;
+            if (idx < scrollOffset || idx >= scrollOffset + listHeight) return;
+            int y = listTop + (idx - scrollOffset);
             bool isSel = (idx == selected);
+            const auto& conf = packet.conferences[idx];
 
             if (isSel)
             {
@@ -84,38 +49,94 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
                 printAt(y, 1 + numW + 1,
                         padStr(truncateStr(conf.name, nameW), nameW),
                         tAttr(TC_BLUE, TC_WHITE, false));
-                printAt(y, g_term->getCols() - countW - 1,
+                printAt(y, COLS - countW - 1,
                         padStr(std::to_string(conf.messages.size()), countW),
                         tAttr(TC_GREEN, TC_WHITE, false));
             }
             else
             {
+                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
                 printAt(y, 1, padStr(std::to_string(conf.number), numW),
                         tAttr(TC_YELLOW, TC_BLACK, true));
                 printAt(y, 1 + numW + 1,
                         padStr(truncateStr(conf.name, nameW), nameW),
                         tAttr(TC_CYAN, TC_BLACK, false));
-                printAt(y, g_term->getCols() - countW - 1,
+                printAt(y, COLS - countW - 1,
                         padStr(std::to_string(conf.messages.size()), countW),
                         tAttr(TC_GREEN, TC_BLACK, false));
             }
-        }
+        };
 
-        // Scrollbar
-        if (totalConfs > listHeight)
+        // ---- Scrollbar-only redraw (thumb position depends on selected)
+        auto drawSB = [&]() {
+            if (totalConfs > listHeight)
+            {
+                drawScrollbar(listTop, listHeight, selected, totalConfs,
+                             tAttr(TC_BLACK, TC_BLACK, true),
+                             tAttr(TC_WHITE, TC_BLACK, true));
+            }
+        };
+
+        bool scrollChanged = (scrollOffset != prevScrollOffset);
+
+        if (needFullRedraw || scrollChanged)
         {
-            drawScrollbar(listTop, listHeight, selected, totalConfs,
-                         tAttr(TC_BLACK, TC_BLACK, true),
-                         tAttr(TC_WHITE, TC_BLACK, true));
-        }
+            // ---- Full redraw ----
+            g_term->clear();
 
-        // Help bar (DDMsgReader style)
-        drawDDHelpBar(g_term->getRows() - 1,
-            "Up/Dn/PgUp/PgDn/HOME/END, ",
-            {{'E', "nter area"}, {'O', "pen file"},
-             {'S', "ettings"}, {'Q', "uit"}, {'?', ""}});
+            TermAttr borderAttr = tAttr(TC_BLUE, TC_BLACK, true);
+            TermAttr titleAttr  = tAttr(TC_GREEN, TC_BLACK, true);
+
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(0, 0, CP437_BOX_DRAWINGS_UPPER_LEFT_SINGLE);
+            g_term->drawHLine(0, 1, COLS - 2);
+            g_term->putCP437(0, COLS - 1, CP437_BOX_DRAWINGS_UPPER_RIGHT_SINGLE);
+            printAt(0, 4, " " + packet.info.bbsName + " ", titleAttr);
+
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(1, 0, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+            g_term->putCP437(1, COLS - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+            printAt(1, 2, "Sysop: ", tAttr(TC_CYAN, TC_BLACK, false));
+            printAt(1, 9, packet.info.sysopName, tAttr(TC_WHITE, TC_BLACK, true));
+            string userInfo = "User: " + packet.info.userName;
+            printAt(1, COLS / 2, userInfo, tAttr(TC_CYAN, TC_BLACK, false));
+            string totalStr = std::to_string(packet.totalMessages()) + " msgs";
+            printAt(1, COLS - static_cast<int>(totalStr.size()) - 3, totalStr,
+                    tAttr(TC_GREEN, TC_BLACK, false));
+
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(2, 0, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
+            g_term->drawHLine(2, 1, COLS - 2);
+            g_term->putCP437(2, COLS - 1, CP437_BOX_DRAWINGS_LOWER_RIGHT_SINGLE);
+
+            TermAttr colAttr = tAttr(TC_CYAN, TC_BLACK, true);
+            printAt(3, 1, padStr("Conf#", numW), colAttr);
+            printAt(3, 1 + numW + 1, padStr("Conference Name", nameW), colAttr);
+            printAt(3, COLS - countW - 1, padStr("Msgs", countW), colAttr);
+
+            for (int i = 0; i < listHeight && (scrollOffset + i) < totalConfs; ++i)
+                drawRow(scrollOffset + i);
+
+            drawSB();
+
+            drawDDHelpBar(ROWS - 1,
+                "Up/Dn/PgUp/PgDn/HOME/END, ",
+                {{'E', "nter area"}, {'O', "pen file"},
+                 {'S', "ettings"}, {'Q', "uit"}, {'?', ""}});
+
+            needFullRedraw = false;
+        }
+        else if (selected != prevSelected)
+        {
+            // ---- Partial update: only the two changed rows + scrollbar ----
+            drawRow(prevSelected);
+            drawRow(selected);
+            drawSB();
+        }
 
         g_term->refresh();
+        prevSelected     = selected;
+        prevScrollOffset = scrollOffset;
 
         int ch = g_term->getKey();
         switch (ch)
@@ -201,6 +222,7 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
                     tAttr(TC_GREEN, TC_BLACK, false));
                 g_term->refresh();
                 g_term->getKey();
+                needFullRedraw = true;   // help screen clobbered the display
                 break;
             }
             default:
@@ -214,116 +236,144 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
                               const Settings& /* settings */,
                               const string& bbsName)
 {
-    int selected = 0;
+    int selected  = 0;
     int scrollOffset = 0;
     int totalMsgs = static_cast<int>(conf.messages.size());
+    bool needFullRedraw  = true;
+    int prevSelected     = -1;
+    int prevScrollOffset = -1;
 
     while (true)
     {
-        g_term->clear();
+        int COLS = g_term->getCols();
+        int ROWS = g_term->getRows();
 
-        // Column header row (DDMsgReader style)
-        // Msg#  From          To           Subject          Date        Time
-        int numW = 5;
-        int fromW = 15;
-        int toW = 15;
-        int dateW = 10;
-        int timeW = 8;
-        int subjW = g_term->getCols() - numW - fromW - toW - dateW - timeW - 6;
+        const int numW  = 5;
+        const int fromW = 15;
+        const int toW   = 15;
+        const int dateW = 10;
+        const int timeW = 8;
+        int subjW = COLS - numW - fromW - toW - dateW - timeW - 6;
         if (subjW < 10)
-        {
             subjW = 10;
-        }
 
-        int headerY = 0;
-        TermAttr colHdrAttr = tAttr(TC_CYAN, TC_BLACK, true);
-        printAt(headerY, 0, padStr("Msg#", numW), colHdrAttr);
-        printAt(headerY, numW + 1, padStr("From", fromW), colHdrAttr);
-        printAt(headerY, numW + fromW + 2, padStr("To", toW), colHdrAttr);
-        printAt(headerY, numW + fromW + toW + 3, padStr("Subject", subjW), colHdrAttr);
-        printAt(headerY, g_term->getCols() - dateW - timeW - 2, padStr("Date", dateW), colHdrAttr);
-        printAt(headerY, g_term->getCols() - timeW - 1, padStr("Time", timeW), colHdrAttr);
+        const int listTop  = 1;
+        int listHeight     = ROWS - 3;
 
-        // Message list
-        int listTop = 1;
-        int listHeight = g_term->getRows() - 3;
-
+        // Keep selected in view
         if (selected < scrollOffset)
-        {
             scrollOffset = selected;
-        }
         if (selected >= scrollOffset + listHeight)
-        {
             scrollOffset = selected - listHeight + 1;
-        }
 
-        for (int i = 0; i < listHeight && (scrollOffset + i) < totalMsgs; ++i)
-        {
-            int idx = scrollOffset + i;
-            const auto& msg = conf.messages[idx];
-            int y = listTop + i;
+        // ---- Per-row drawing lambda ----
+        auto drawRow = [&](int idx) {
+            if (idx < 0 || idx >= totalMsgs) return;
+            if (idx < scrollOffset || idx >= scrollOffset + listHeight) return;
+            int y = listTop + (idx - scrollOffset);
             bool isSel = (idx == selected);
+            const auto& msg = conf.messages[idx];
 
             if (isSel)
             {
                 fillRow(y, tAttr(TC_BLUE, TC_WHITE, false));
-                printAt(y, 0, padStr(rightAlign(std::to_string(msg.number), numW), numW),
+                printAt(y, 0,
+                        padStr(rightAlign(std::to_string(msg.number), numW), numW),
                         tAttr(TC_RED, TC_WHITE, false));
-                printAt(y, numW + 1, padStr(truncateStr(msg.from, fromW), fromW),
+                printAt(y, numW + 1,
+                        padStr(truncateStr(msg.from, fromW), fromW),
                         tAttr(TC_BLUE, TC_WHITE, false));
-                printAt(y, numW + fromW + 2, padStr(truncateStr(msg.to, toW), toW),
+                printAt(y, numW + fromW + 2,
+                        padStr(truncateStr(msg.to, toW), toW),
                         tAttr(TC_BLUE, TC_WHITE, false));
                 printAt(y, numW + fromW + toW + 3,
                         padStr(truncateStr(msg.subject, subjW), subjW),
                         tAttr(TC_BLACK, TC_WHITE, false));
-                printAt(y, g_term->getCols() - dateW - timeW - 2,
+                printAt(y, COLS - dateW - timeW - 2,
                         padStr(msg.date, dateW),
                         tAttr(TC_GREEN, TC_WHITE, false));
-                printAt(y, g_term->getCols() - timeW - 1,
+                printAt(y, COLS - timeW - 1,
                         padStr(msg.time, timeW),
                         tAttr(TC_GREEN, TC_WHITE, false));
             }
             else
             {
-                printAt(y, 0, padStr(rightAlign(std::to_string(msg.number), numW), numW),
+                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
+                printAt(y, 0,
+                        padStr(rightAlign(std::to_string(msg.number), numW), numW),
                         tAttr(TC_YELLOW, TC_BLACK, true));
-                printAt(y, numW + 1, padStr(truncateStr(msg.from, fromW), fromW),
+                printAt(y, numW + 1,
+                        padStr(truncateStr(msg.from, fromW), fromW),
                         tAttr(TC_CYAN, TC_BLACK, false));
-                printAt(y, numW + fromW + 2, padStr(truncateStr(msg.to, toW), toW),
+                printAt(y, numW + fromW + 2,
+                        padStr(truncateStr(msg.to, toW), toW),
                         tAttr(TC_CYAN, TC_BLACK, false));
                 printAt(y, numW + fromW + toW + 3,
                         padStr(truncateStr(msg.subject, subjW), subjW),
                         tAttr(TC_CYAN, TC_BLACK, true));
-                printAt(y, g_term->getCols() - dateW - timeW - 2,
+                printAt(y, COLS - dateW - timeW - 2,
                         padStr(msg.date, dateW),
                         tAttr(TC_GREEN, TC_BLACK, false));
-                printAt(y, g_term->getCols() - timeW - 1,
+                printAt(y, COLS - timeW - 1,
                         padStr(msg.time, timeW),
                         tAttr(TC_GREEN, TC_BLACK, false));
             }
-        }
+        };
 
-        // Scrollbar
-        if (totalMsgs > listHeight)
+        // ---- Scrollbar-only redraw ----
+        auto drawSB = [&]() {
+            if (totalMsgs > listHeight)
+            {
+                drawScrollbar(listTop, listHeight, selected, totalMsgs,
+                             tAttr(TC_BLACK, TC_BLACK, true),
+                             tAttr(TC_WHITE, TC_BLACK, true));
+            }
+        };
+
+        bool scrollChanged = (scrollOffset != prevScrollOffset);
+
+        if (needFullRedraw || scrollChanged)
         {
-            drawScrollbar(listTop, listHeight, selected, totalMsgs,
-                         tAttr(TC_BLACK, TC_BLACK, true),
-                         tAttr(TC_WHITE, TC_BLACK, true));
+            // ---- Full redraw ----
+            g_term->clear();
+
+            TermAttr colHdrAttr = tAttr(TC_CYAN, TC_BLACK, true);
+            printAt(0, 0, padStr("Msg#", numW), colHdrAttr);
+            printAt(0, numW + 1, padStr("From", fromW), colHdrAttr);
+            printAt(0, numW + fromW + 2, padStr("To", toW), colHdrAttr);
+            printAt(0, numW + fromW + toW + 3, padStr("Subject", subjW), colHdrAttr);
+            printAt(0, COLS - dateW - timeW - 2, padStr("Date", dateW), colHdrAttr);
+            printAt(0, COLS - timeW - 1, padStr("Time", timeW), colHdrAttr);
+
+            for (int i = 0; i < listHeight && (scrollOffset + i) < totalMsgs; ++i)
+                drawRow(scrollOffset + i);
+
+            drawSB();
+
+            // Status line (static for the lifetime of this message list)
+            string confTitle = bbsName + " - " + conf.name
+                + " (" + std::to_string(totalMsgs) + " msgs)";
+            printAt(ROWS - 2, 0, truncateStr(confTitle, COLS),
+                    tAttr(TC_CYAN, TC_BLACK, false));
+
+            drawDDHelpBar(ROWS - 1,
+                "Up/Dn/PgUp/PgDn/HOME/END, ",
+                {{'N', "ew msg"}, {'R', "eply"}, {'F', "irst"}, {'L', "ast"},
+                 {'G', "o to #"}, {'C', "onf list"}, {'Q', "uit"}, {'?', ""}});
+
+            needFullRedraw = false;
         }
-
-        // Status line
-        string confTitle = bbsName + " - " + conf.name
-            + " (" + std::to_string(totalMsgs) + " msgs)";
-        printAt(g_term->getRows() - 2, 0, truncateStr(confTitle, g_term->getCols()),
-                tAttr(TC_CYAN, TC_BLACK, false));
-
-        // Help bar (DDMsgReader style)
-        drawDDHelpBar(g_term->getRows() - 1,
-            "Up/Dn/PgUp/PgDn/HOME/END, ",
-            {{'N', "ew msg"}, {'R', "eply"}, {'F', "irst"}, {'L', "ast"},
-             {'G', "o to #"}, {'C', "onf list"}, {'Q', "uit"}, {'?', ""}});
+        else if (selected != prevSelected)
+        {
+            // ---- Partial update: two changed rows + scrollbar ----
+            drawRow(prevSelected);
+            drawRow(selected);
+            drawSB();
+        }
 
         g_term->refresh();
+        prevSelected     = selected;
+        prevScrollOffset = scrollOffset;
 
         int ch = g_term->getKey();
         switch (ch)
@@ -400,11 +450,11 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
             case 'g':
             case 'G':
             {
-                printAt(g_term->getRows() - 1, 0, "Go to msg #: ",
+                printAt(ROWS - 1, 0, "Go to msg #: ",
                         tAttr(TC_WHITE, TC_BLACK, true));
-                g_term->moveTo(g_term->getRows() - 1, 13);
+                g_term->moveTo(ROWS - 1, 13);
                 g_term->clearToEol();
-                string numStr = getStringInput(g_term->getRows() - 1, 14, 8, "",
+                string numStr = getStringInput(ROWS - 1, 14, 8, "",
                     tAttr(TC_WHITE, TC_BLACK, true));
                 if (!numStr.empty())
                 {
@@ -424,6 +474,7 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
                     {
                     }
                 }
+                needFullRedraw = true;  // help bar was overwritten by input prompt
                 break;
             }
             case '?':
@@ -458,6 +509,7 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
                     tAttr(TC_GREEN, TC_BLACK, false));
                 g_term->refresh();
                 g_term->getKey();
+                needFullRedraw = true;   // help screen clobbered the display
                 break;
             }
             default:

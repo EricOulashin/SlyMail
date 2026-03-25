@@ -117,85 +117,68 @@ string showFileBrowser(const string& startDir,
         }
     }
 
-    int selected = 0;
-    int scrollOffset = 0;
-    bool needPreSelect = !preSelectFile.empty();
+    int selected      = 0;
+    int scrollOffset  = 0;
+    bool needPreSelect  = !preSelectFile.empty();
+    bool needFullRedraw = true;
+    bool needReloadDir  = true;
+    int prevSelected     = -1;
+    int prevScrollOffset = -1;
+    vector<FileEntry> entries;
 
     while (true)
     {
-        auto entries = listDirectory(currentDir);
-
-        // Pre-select a file if specified
-        if (needPreSelect)
+        // Reload directory listing when the directory changes
+        if (needReloadDir)
         {
-            needPreSelect = false;
-            string preSelectName = fs::path(preSelectFile).filename().string();
-            for (int i = 0; i < static_cast<int>(entries.size()); ++i)
+            needReloadDir = false;
+            entries = listDirectory(currentDir);
+
+            // Pre-select a file if specified
+            if (needPreSelect)
             {
-                if (entries[i].name == preSelectName)
+                needPreSelect = false;
+                string preSelectName = fs::path(preSelectFile).filename().string();
+                for (int i = 0; i < static_cast<int>(entries.size()); ++i)
                 {
-                    selected = i;
+                    if (entries[i].name == preSelectName)
+                    {
+                        selected = i;
+                        break;
+                    }
+                }
+            }
+
+            if (entries.empty())
+            {
+                currentDir = fs::path(currentDir).parent_path().string();
+                entries = listDirectory(currentDir);
+                if (entries.empty())
+                {
                     break;
                 }
             }
-        }
-
-        if (entries.empty())
-        {
-            currentDir = fs::path(currentDir).parent_path().string();
-            entries = listDirectory(currentDir);
-            if (entries.empty())
+            if (selected >= static_cast<int>(entries.size()))
             {
-                break;
+                selected = static_cast<int>(entries.size()) - 1;
             }
-        }
-        if (selected >= static_cast<int>(entries.size()))
-        {
-            selected = static_cast<int>(entries.size()) - 1;
-        }
-        if (selected < 0)
-        {
-            selected = 0;
+            if (selected < 0)
+            {
+                selected = 0;
+            }
+            needFullRedraw   = true;
+            prevSelected     = -1;
+            prevScrollOffset = -1;
         }
 
-        int COLS = g_term->getCols();
+        int COLS  = g_term->getCols();
         int LINES = g_term->getRows();
 
-        g_term->clear();
-
-        // Title header with border (DDMsgReader style)
-        TermAttr borderAttr = tAttr(TC_BLUE, TC_BLACK, true);
-        TermAttr titleAttr  = tAttr(TC_CYAN, TC_BLACK, true);
-        TermAttr pathAttr   = tAttr(TC_WHITE, TC_BLACK, true);
-
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(0, 0, CP437_BOX_DRAWINGS_UPPER_LEFT_SINGLE);
-        g_term->drawHLine(0, 1, COLS - 2);
-        g_term->putCP437(0, COLS - 1, CP437_BOX_DRAWINGS_UPPER_RIGHT_SINGLE);
-        printAt(0, 4, " SlyMail - Select QWK File ", titleAttr);
-
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(1, 0, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-        g_term->putCP437(1, COLS - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-        printAt(1, 2, "Path: ", tAttr(TC_CYAN, TC_BLACK, false));
-        printAt(1, 8, truncateStr(currentDir, COLS - 11), pathAttr);
-
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(2, 0, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
-        g_term->drawHLine(2, 1, COLS - 2);
-        g_term->putCP437(2, COLS - 1, CP437_BOX_DRAWINGS_LOWER_RIGHT_SINGLE);
-
-        // Column headers
-        int headerY = 3;
-        TermAttr colHdrAttr = tAttr(TC_CYAN, TC_BLACK, true);
-        printAt(headerY, 1, padStr("Name", COLS - 30), colHdrAttr);
-        printAt(headerY, COLS - 28, padStr("Size", 10), colHdrAttr);
-        printAt(headerY, COLS - 18, padStr("Date", 16), colHdrAttr);
-
-        // File list
-        int listTop = 4;
+        // List layout constants
+        int listTop    = 4;
         int listHeight = LINES - 6;
 
+        // Clamp scroll offset to keep selected in view
         if (selected < scrollOffset)
         {
             scrollOffset = selected;
@@ -205,15 +188,17 @@ string showFileBrowser(const string& startDir,
             scrollOffset = selected - listHeight + 1;
         }
 
-        for (int i = 0; i < listHeight && (scrollOffset + i) < static_cast<int>(entries.size()); ++i)
+        // Lambda: draw a single file-list row
+        auto drawRow = [&](int idx)
         {
-            int idx = scrollOffset + i;
+            if (idx < 0 || idx >= static_cast<int>(entries.size())) return;
+            if (idx < scrollOffset || idx >= scrollOffset + listHeight) return;
+
+            int y = listTop + (idx - scrollOffset);
             const auto& entry = entries[idx];
-            int y = listTop + i;
             bool isSel = (idx == selected);
 
             TermAttr nameAttr, sizeAttr, dateAttr;
-
             if (isSel)
             {
                 fillRow(y, tAttr(TC_BLUE, TC_WHITE, false));
@@ -223,18 +208,21 @@ string showFileBrowser(const string& startDir,
             }
             else if (entry.isDirectory)
             {
+                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
                 nameAttr = tAttr(TC_BLUE, TC_BLACK, true);
                 sizeAttr = tAttr(TC_YELLOW, TC_BLACK, false);
                 dateAttr = tAttr(TC_GREEN, TC_BLACK, false);
             }
             else if (isQwkFile(entry.name))
             {
+                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
                 nameAttr = tAttr(TC_GREEN, TC_BLACK, true);
                 sizeAttr = tAttr(TC_YELLOW, TC_BLACK, false);
                 dateAttr = tAttr(TC_GREEN, TC_BLACK, false);
             }
             else
             {
+                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
                 nameAttr = tAttr(TC_CYAN, TC_BLACK, false);
                 sizeAttr = tAttr(TC_YELLOW, TC_BLACK, false);
                 dateAttr = tAttr(TC_GREEN, TC_BLACK, false);
@@ -246,7 +234,6 @@ string showFileBrowser(const string& startDir,
                 displayName += "/";
             }
             printAt(y, 1, padStr(truncateStr(displayName, COLS - 32), COLS - 30), nameAttr);
-
             if (!entry.isDirectory)
             {
                 printAt(y, COLS - 28, padStr(formatSize(entry.fileSize), 10), sizeAttr);
@@ -256,27 +243,90 @@ string showFileBrowser(const string& startDir,
                 printAt(y, COLS - 28, padStr("<DIR>", 10), sizeAttr);
             }
             printAt(y, COLS - 18, padStr(entry.dateStr, 16), dateAttr);
-        }
+        };
 
-        // Scrollbar
-        if (static_cast<int>(entries.size()) > listHeight)
+        // Lambda: draw scrollbar
+        auto drawSB = [&]()
         {
-            drawScrollbar(listTop, listHeight, selected,
-                         static_cast<int>(entries.size()),
-                         tAttr(TC_BLACK, TC_BLACK, true),
-                         tAttr(TC_WHITE, TC_BLACK, true));
+            if (static_cast<int>(entries.size()) > listHeight)
+            {
+                drawScrollbar(listTop, listHeight, selected,
+                             static_cast<int>(entries.size()),
+                             tAttr(TC_BLACK, TC_BLACK, true),
+                             tAttr(TC_WHITE, TC_BLACK, true));
+            }
+        };
+
+        // Lambda: draw status line (changes with every navigation step)
+        auto drawStatus = [&]()
+        {
+            string statusStr = std::to_string(selected + 1) + " of "
+                + std::to_string(entries.size()) + " items";
+            printAt(LINES - 2, 1, padStr(statusStr, 30), tAttr(TC_WHITE, TC_BLACK, false));
+        };
+
+        // --- Draw decision ---
+        bool scrollChanged = (scrollOffset != prevScrollOffset);
+
+        if (needFullRedraw || scrollChanged)
+        {
+            // Full redraw: static chrome + all visible rows
+            TermAttr borderAttr = tAttr(TC_BLUE, TC_BLACK, true);
+            TermAttr titleAttr  = tAttr(TC_CYAN, TC_BLACK, true);
+            TermAttr pathAttr   = tAttr(TC_WHITE, TC_BLACK, true);
+
+            g_term->clear();
+
+            // Title header with border (DDMsgReader style)
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(0, 0, CP437_BOX_DRAWINGS_UPPER_LEFT_SINGLE);
+            g_term->drawHLine(0, 1, COLS - 2);
+            g_term->putCP437(0, COLS - 1, CP437_BOX_DRAWINGS_UPPER_RIGHT_SINGLE);
+            printAt(0, 4, " SlyMail - Select QWK File ", titleAttr);
+
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(1, 0, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+            g_term->putCP437(1, COLS - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+            printAt(1, 2, "Path: ", tAttr(TC_CYAN, TC_BLACK, false));
+            printAt(1, 8, truncateStr(currentDir, COLS - 11), pathAttr);
+
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(2, 0, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
+            g_term->drawHLine(2, 1, COLS - 2);
+            g_term->putCP437(2, COLS - 1, CP437_BOX_DRAWINGS_LOWER_RIGHT_SINGLE);
+
+            // Column headers
+            int headerY = 3;
+            TermAttr colHdrAttr = tAttr(TC_CYAN, TC_BLACK, true);
+            printAt(headerY, 1, padStr("Name", COLS - 30), colHdrAttr);
+            printAt(headerY, COLS - 28, padStr("Size", 10), colHdrAttr);
+            printAt(headerY, COLS - 18, padStr("Date", 16), colHdrAttr);
+
+            // All visible rows
+            for (int i = 0; i < listHeight && (scrollOffset + i) < static_cast<int>(entries.size()); ++i)
+            {
+                drawRow(scrollOffset + i);
+            }
+
+            drawSB();
+            drawStatus();
+            drawDDHelpBar(LINES - 1, "Up/Dn/PgUp/PgDn/HOME/END, ",
+                {{'Q', "uit"}});
+
+            needFullRedraw = false;
         }
-
-        // Status
-        string statusStr = std::to_string(selected + 1) + " of "
-            + std::to_string(entries.size()) + " items";
-        printAt(LINES - 2, 1, statusStr, tAttr(TC_WHITE, TC_BLACK, false));
-
-        // Help bar
-        drawDDHelpBar(LINES - 1, "Up/Dn/PgUp/PgDn/HOME/END, ",
-            {{'Q', "uit"}});
+        else if (selected != prevSelected)
+        {
+            // Partial update: only the two changed rows + scrollbar + status
+            drawRow(prevSelected);
+            drawRow(selected);
+            drawSB();
+            drawStatus();
+        }
 
         g_term->refresh();
+        prevSelected     = selected;
+        prevScrollOffset = scrollOffset;
 
         int ch = g_term->getKey();
         switch (ch)
@@ -319,9 +369,10 @@ string showFileBrowser(const string& startDir,
                     const auto& entry = entries[selected];
                     if (entry.isDirectory)
                     {
-                        currentDir = entry.fullPath;
-                        selected = 0;
+                        currentDir   = entry.fullPath;
+                        selected     = 0;
                         scrollOffset = 0;
+                        needReloadDir = true;
                     }
                     else if (isQwkFile(entry.name))
                     {
@@ -330,6 +381,7 @@ string showFileBrowser(const string& startDir,
                     else
                     {
                         messageDialog("Info", "Please select a .qwk file");
+                        needFullRedraw = true;
                     }
                 }
                 break;

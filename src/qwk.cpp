@@ -567,13 +567,7 @@ bool createRepPacket(const std::string& repFilePath,
     for (const auto& reply : replies)
     {
         // Build the message body with QWK newlines
-        // Append editor tear line if editor info is set
         std::string fullBody = reply.body;
-        if (!reply.editor.empty())
-        {
-            fullBody += "\n---\n";
-            fullBody += " * " + reply.editor + "\n";
-        }
 
         std::string qwkBody;
         for (char c : fullBody)

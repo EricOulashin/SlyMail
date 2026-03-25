@@ -973,15 +973,104 @@ bool MessageEditor::handleQuoteWindow()
     quoteSelected = 0;
     quoteScroll = 0;
 
+    // Ensure quoteWinHeight is set before the loop so the first iteration's
+    // key handler uses the correct contentHeight for scroll boundary checks.
+    // (drawEditArea() sets this, but only runs at the end of the first draw
+    // decision — the key handler runs after, with the stale value otherwise.)
+    quoteWinHeight = editHeight * 42 / 100;
+    if (quoteWinHeight < 5)
+    {
+        quoteWinHeight = 5;
+    }
+
+    bool qNeedFullRedraw = true;
+    int prevQSel    = -1;
+    int prevQScroll = -1;
+
     while (quoteWindowOpen)
     {
-        // Redraw edit area (reduced) + quote window
-        drawEditArea();
-        drawQuoteWindow();
+        int cols          = g_term->getCols();
+        int qWinTop       = editTop + editHeight - quoteWinHeight;
+        int contentHeight = quoteWinHeight - 2;
+
+        // Resolve theme colors for partial row drawing
+        TermAttr qBorderAttr, qTextAttr, qSelAttr;
+        if (currentStyle == EditorStyle::Ice)
+        {
+            qBorderAttr = IceColors::quoteBorder();
+            qTextAttr   = IceColors::editText();
+            qSelAttr    = IceColors::quoteHl();
+        }
+        else
+        {
+            qBorderAttr = DctColors::quoteBorderC();
+            qTextAttr   = DctColors::quoteText();
+            qSelAttr    = DctColors::quoteHl();
+        }
+
+        // Lambda: redraw a single quote-window row
+        auto drawQRow = [&](int lineIdx)
+        {
+            if (lineIdx < quoteScroll || lineIdx >= quoteScroll + contentHeight) return;
+            int i = lineIdx - quoteScroll;
+            int y = qWinTop + 1 + i;
+            bool isSel = (lineIdx == quoteSelected);
+
+            g_term->setAttr(qTextAttr);
+            g_term->fillRegion(y, 1, cols - 1, ' ');
+            g_term->setAttr(qBorderAttr);
+            g_term->putCP437(y, 0, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+            g_term->putCP437(y, cols - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+
+            if (lineIdx < static_cast<int>(quoteLines.size()))
+            {
+                if (isSel)
+                {
+                    fillRow(y, qSelAttr, 1, cols - 1);
+                    printAt(y, 1, truncateStr(quoteLines[lineIdx], cols - 3), qSelAttr);
+                }
+                else
+                {
+                    printAt(y, 1, truncateStr(quoteLines[lineIdx], cols - 3), qTextAttr);
+                }
+            }
+        };
+
+        // Lambda: redraw the quote-window scrollbar
+        auto drawQSB = [&]()
+        {
+            int totalQL = static_cast<int>(quoteLines.size());
+            if (totalQL > contentHeight)
+            {
+                drawScrollbar(qWinTop + 1, contentHeight, quoteSelected, totalQL,
+                             tAttr(TC_BLACK, TC_BLACK, true),
+                             tAttr(TC_WHITE, TC_BLACK, true));
+            }
+        };
+
+        // --- Draw decision ---
+        bool qScrollChanged = (quoteScroll != prevQScroll);
+
+        if (qNeedFullRedraw || qScrollChanged)
+        {
+            // Full redraw: edit area + complete quote window
+            drawEditArea();
+            drawQuoteWindow();
+            qNeedFullRedraw = false;
+        }
+        else if (quoteSelected != prevQSel)
+        {
+            // Partial update: deselect old row, select new row, refresh scrollbar
+            drawQRow(prevQSel);
+            drawQRow(quoteSelected);
+            drawQSB();
+        }
+
         g_term->refresh();
+        prevQSel    = quoteSelected;
+        prevQScroll = quoteScroll;
 
         int ch = g_term->getKey();
-        int contentHeight = quoteWinHeight - 2;
 
         switch (ch)
         {
@@ -1042,12 +1131,16 @@ bool MessageEditor::handleQuoteWindow()
                 lines.insert(lines.begin() + cursorRow, ql);
                 ++cursorRow;
                 // Auto-advance lightbar down one line (if not at bottom)
-                if (quoteSelected < (int)quoteLines.size() - 1)
+                if (quoteSelected < static_cast<int>(quoteLines.size()) - 1)
                 {
                     ++quoteSelected;
                     if (quoteSelected >= quoteScroll + contentHeight)
+                    {
                         quoteScroll = quoteSelected - contentHeight + 1;
+                    }
                 }
+                // Edit area changed: need full redraw next iteration
+                qNeedFullRedraw = true;
                 break;
             }
             case TK_CTRL_Q:

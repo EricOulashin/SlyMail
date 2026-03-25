@@ -39,3 +39,20 @@
 
 # debug information files
 *.dwo
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.vcxproj.filters.user
+ipch/
+x64/
+x86/
+
+# Visual Studio build output directories
+vs/x64/
+vs/x86/
+vs/Debug/
+vs/Release/
