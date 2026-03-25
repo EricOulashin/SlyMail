@@ -106,6 +106,7 @@ SlyMail supports the Synchronet VOTING.DAT extension for polls and message votin
 - Taglines are appended to messages with a `...` prefix
 
 ### REP Packet Creation
+- Currently, only ZIP is supported (I want to add support for more compression types in the future)
 - When you write replies or new messages, they are queued as pending
 - Votes (poll ballots, up/down votes) are also queued alongside replies
 - On exit (or when opening a new QWK file), SlyMail prompts to save all pending items
@@ -159,6 +160,29 @@ SlyMail can download QWK packets directly from remote systems via FTP or SFTP (S
 	<a href="screenshots/SlyMail_18_advanced_msg_search_date_picker" target='_blank'><img src="screenshots/SlyMail_18_advanced_msg_search_date_picker" alt="Date Picker in Advanced Message Search" width="800"></a>
 	<a href="screenshots/SlyMail_19_config_program.png" target='_blank'><img src="screenshots/SlyMail_19_config_program.png" alt="Configuration Program" width="800"></a>
 </p>
+
+## Synchronet settings for a QWK packet
+On a Synchronet BBS, in the QWK packet settings, Slymail is (or should be) compatible with Ctrl-A color codes, VOTING.DAT, file attachments,
+and the QWKE packet format. Slymail should also be compatible with UTF-8.   For instance:
+<table>
+<tr><<td aligh='right'>Ctrl-A Color Codes</td><td>Leave in</td></tr>
+<tr><<td aligh='right'>Archive Type</td><td>ZIP</td></tr>
+<tr><<td aligh='right'>Include E-Mail Messages</td><td>Un-Read Only</td></tr>
+<tr><<td aligh='right'>Include File Attachments</td><td>Yes</td></tr>
+<tr><<td aligh='right'>Delete E-mail Automatically</td><td>No</td></tr>
+<tr><<td aligh='right'>Include New Files List</td><td>Yes</td></tr>
+<tr><<td aligh='right'>Include Index Files</td><td>Yes</td></tr>
+<tr><<td aligh='right'>Include Control Files</td><td>Yes</td></tr>
+<tr><<td aligh='right'>Include VOTING.DAT File</td><td>Yes</td></tr>
+<tr><<td aligh='right'>Include HEADERS.DAT File</td><td>Yes</td></tr>
+<tr><<td aligh='right'>Include Messages from You</td><td>No</td></tr>
+<tr><<td aligh='right'>Include Time Zone (@TZ)</td><td>No</td></tr>
+<tr><<td aligh='right'>Include Message Path (@VIA)</td><td>No</td></tr>
+<tr><<td aligh='right'>Include Message/Reply IDs</td><td>No</td></tr>
+<tr><<td aligh='right'>Include UTF-8 Characters</td><td>Yes</td></tr>
+<tr><<td aligh='right'>MIME-encoded Message Text</td><td>No</td></tr>
+<tr><<td aligh='right'>Extended (QWKE) Packet Format</td><td>Yes</td></tr>
+</table>
 
 ## Building
 

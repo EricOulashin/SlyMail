@@ -2079,18 +2079,23 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
                     case 'c':
                     case 'C':
                     {
-                        int subY, subX;
+                        int subCols = g_term->getCols();
+                        int subY, subX, subMaxLen;
                         if (currentStyle == EditorStyle::Ice)
                         {
                             subY = 2;
-                            subX = 12;
+                            subX = 10;
+                            subMaxLen = subCols - 24;
                         }
                         else
                         {
                             subY = 3;
-                            subX = 11;
+                            subX = 8;
+                            subMaxLen = subCols - 6 - 3 - 2;
                         }
-                        string newSubj = getStringInput(subY, subX, 25,
+                        if (subMaxLen < 10) subMaxLen = 10;
+                        if (subMaxLen > 72) subMaxLen = 72;
+                        string newSubj = getStringInput(subY, subX, subMaxLen,
                             subjectField, tAttr(TC_WHITE, TC_BLACK, true));
                         if (!newSubj.empty())
                         {
@@ -2247,19 +2252,25 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
             case TK_CTRL_S:
             {
                 // Change subject - position cursor at subject field and allow editing
-                int subjectMaxLen = 25;
-                // Calculate subject position based on style
-                int subY, subX;
+                int cols = g_term->getCols();
+                int subY, subX, subjectMaxLen;
                 if (currentStyle == EditorStyle::Ice)
                 {
-                    subY = 2;   // Row 2 in Ice header (SUBJECT row)
-                    subX = 12;  // After "SUBJECT: "
+                    // Ice: "SUBJECT:" at col 1-8, ":" at col 8, value starts at col 10
+                    subY = 2;
+                    subX = 10;
+                    subjectMaxLen = cols - 24; // Match the width used in drawIceHeader
                 }
                 else
                 {
-                    subY = 3;   // Row 3 in DCT header (Subj row)
-                    subX = 11;  // After "Subj : "
+                    // DCT: "Subj " at col 1-5, "|" at col 6, drawDctField starts at 7,
+                    // then " " + text at col 8
+                    subY = 3;
+                    subX = 8;
+                    subjectMaxLen = cols - 6 - 3 - 2; // Match drawDctField width
                 }
+                if (subjectMaxLen < 10) subjectMaxLen = 10;
+                if (subjectMaxLen > 72) subjectMaxLen = 72;
                 string newSubj = getStringInput(subY, subX, subjectMaxLen,
                     subjectField, tAttr(TC_WHITE, TC_BLACK, true));
                 if (!newSubj.empty())
