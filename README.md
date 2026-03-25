@@ -139,15 +139,15 @@ SlyMail can download QWK packets directly from remote systems via FTP or SFTP (S
 ## Screenshots
 
 <p align="center">
-	<a href="screenshots/SlyMail_01_OpeningScreen.png" target='_blank'><img src="screenshots/SlyMail_1_OpeningScreen.png" alt="Opening screen" width="800"></a>
-	<a href="screenshots/SlyMail_02_File_Chooser.png" target='_blank'><img src="screenshots/SlyMail_2_File_Chooser.png" alt="File chooser: Browsing for QWK file" width="800"></a>
-	<a href="screenshots/SlyMail_03_msg_area_list.png" target='_blank'><img src="screenshots/SlyMail_3_msg_area_list.png" alt="Message area list" width="800"></a>
-	<a href="screenshots/SlyMail_04_msg_list.png" target='_blank'><img src="screenshots/SlyMail_4_msg_list.png" alt="Message list" width="800"></a>
-	<a href="screenshots/SlyMail_05_reading_msg.png" target='_blank'><img src="screenshots/SlyMail_5_reading_msg.png" alt="Reading a message" width="800"></a>
-	<a href="screenshots/SlyMail_06_msg_edit_start.png" target='_blank'><img src="screenshots/SlyMail_6_msg_edit_start.png" alt="Start of editing a message" width="800"></a>
-	<a href="screenshots/SlyMail_07_quote_line_selection.png" target='_blank'><img src="screenshots/SlyMail_7_quote_line_selection.png" alt="Editor: Quote line selection" width="800"></a>
-	<a href="screenshots/SlyMail_08_writing_reply_msg.png" target='_blank'><img src="screenshots/SlyMail_8_writing_reply_msg.png" alt="Editor: Editing a message" width="800"></a>
-	<a href="screenshots/SlyMail_09_editor_color_picker.png" target='_blank'><img src="screenshots/SlyMail_9_editor_color_picker.png" alt="Editor: Color picker" width="800"></a>
+	<a href="screenshots/SlyMail_01_OpeningScreen.png" target='_blank'><img src="screenshots/SlyMail_01_OpeningScreen.png" alt="Opening screen" width="800"></a>
+	<a href="screenshots/SlyMail_02_File_Chooser.png" target='_blank'><img src="screenshots/SlyMail_02_File_Chooser.png" alt="File chooser: Browsing for QWK file" width="800"></a>
+	<a href="screenshots/SlyMail_03_msg_area_list.png" target='_blank'><img src="screenshots/SlyMail_03_msg_area_list.png" alt="Message area list" width="800"></a>
+	<a href="screenshots/SlyMail_04_msg_list.png" target='_blank'><img src="screenshots/SlyMail_04_msg_list.png" alt="Message list" width="800"></a>
+	<a href="screenshots/SlyMail_05_reading_msg.png" target='_blank'><img src="screenshots/SlyMail_05_reading_msg.png" alt="Reading a message" width="800"></a>
+	<a href="screenshots/SlyMail_06_msg_edit_start.png" target='_blank'><img src="screenshots/SlyMail_06_msg_edit_start.png" alt="Start of editing a message" width="800"></a>
+	<a href="screenshots/SlyMail_07_quote_line_selection.png" target='_blank'><img src="screenshots/SlyMail_07_quote_line_selection.png" alt="Editor: Quote line selection" width="800"></a>
+	<a href="screenshots/SlyMail_08_writing_reply_msg.png" target='_blank'><img src="screenshots/SlyMail_08_writing_reply_msg.png" alt="Editor: Editing a message" width="800"></a>
+	<a href="screenshots/SlyMail_09_editor_color_picker.png" target='_blank'><img src="screenshots/SlyMail_09_editor_color_picker.png" alt="Editor: Color picker" width="800"></a>
 	<a href="screenshots/SlyMail_10_Sync_poll_msg.png" target='_blank'><img src="screenshots/SlyMail_10_Sync_poll_msg.png" alt="Synchronet poll message" width="800"></a>
 	<a href="screenshots/SlyMail_11_reader_settings.png" target='_blank'><img src="screenshots/SlyMail_11_reader_settings.png" alt="Reader settings" width="800"></a>
 	<a href="screenshots/SlyMail_12_editor_settings.png" target='_blank'><img src="screenshots/SlyMail_12_editor_settings.png" alt="Editor settings" width="800"></a>
