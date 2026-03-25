@@ -56,3 +56,10 @@ vs/x64/
 vs/x86/
 vs/Debug/
 vs/Release/
+
+# Built binaries
+/slymail
+/config
+
+# QWK packet filenames
+DIGDIST.qwk

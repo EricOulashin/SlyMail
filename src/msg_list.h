@@ -13,6 +13,7 @@ enum class ConfListResult
     Quit,
     OpenFile,
     Settings,
+    Voting,
 };
 
 enum class MsgListResult

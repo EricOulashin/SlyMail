@@ -13,7 +13,9 @@ HEADERS = $(SRCDIR)/terminal.h $(SRCDIR)/terminal_ncurses.h $(SRCDIR)/terminal_w
           $(SRCDIR)/cp437defs.h $(SRCDIR)/colors.h $(SRCDIR)/program_info.h \
           $(SRCDIR)/qwk.h $(SRCDIR)/settings.h $(SRCDIR)/ui_common.h \
           $(SRCDIR)/file_browser.h $(SRCDIR)/msg_list.h $(SRCDIR)/msg_reader.h \
-          $(SRCDIR)/msg_editor.h $(SRCDIR)/settings_dialog.h $(SRCDIR)/theme.h
+          $(SRCDIR)/msg_editor.h $(SRCDIR)/settings_dialog.h $(SRCDIR)/theme.h \
+          $(SRCDIR)/bbs_colors.h $(SRCDIR)/utf8_util.h $(SRCDIR)/voting.h \
+          $(SRCDIR)/remote_systems.h $(SRCDIR)/search.h
 
 # Object files
 OBJDIR = obj
@@ -21,11 +23,14 @@ OBJDIR = obj
 # SlyMail objects
 SLYMAIL_OBJECTS = $(OBJDIR)/main.o $(OBJDIR)/qwk.o $(OBJDIR)/settings.o $(OBJDIR)/msg_reader.o \
                   $(OBJDIR)/msg_editor.o $(OBJDIR)/settings_dialog.o $(OBJDIR)/terminal.o \
-                  $(OBJDIR)/ui_common.o $(OBJDIR)/theme.o $(OBJDIR)/file_browser.o $(OBJDIR)/msg_list.o
+                  $(OBJDIR)/ui_common.o $(OBJDIR)/theme.o $(OBJDIR)/file_browser.o $(OBJDIR)/msg_list.o \
+                  $(OBJDIR)/bbs_colors.o $(OBJDIR)/utf8_util.o $(OBJDIR)/voting.o \
+                  $(OBJDIR)/remote_systems.o $(OBJDIR)/search.o
 
 # Config program objects
 CONFIG_OBJECTS = $(OBJDIR)/config.o $(OBJDIR)/settings.o $(OBJDIR)/settings_dialog.o \
-                 $(OBJDIR)/terminal.o $(OBJDIR)/ui_common.o $(OBJDIR)/theme.o
+                 $(OBJDIR)/terminal.o $(OBJDIR)/ui_common.o $(OBJDIR)/theme.o \
+                 $(OBJDIR)/remote_systems.o $(OBJDIR)/file_browser.o
 
 # Compiler
 CXX = g++
@@ -132,6 +137,26 @@ $(OBJDIR)/file_browser.o: $(SRCDIR)/file_browser.cpp $(HEADERS)
 
 # Compile msg_list.cpp
 $(OBJDIR)/msg_list.o: $(SRCDIR)/msg_list.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Compile bbs_colors.cpp
+$(OBJDIR)/bbs_colors.o: $(SRCDIR)/bbs_colors.cpp $(SRCDIR)/bbs_colors.h $(SRCDIR)/terminal.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Compile utf8_util.cpp
+$(OBJDIR)/utf8_util.o: $(SRCDIR)/utf8_util.cpp $(SRCDIR)/utf8_util.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Compile voting.cpp
+$(OBJDIR)/voting.o: $(SRCDIR)/voting.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Compile remote_systems.cpp
+$(OBJDIR)/remote_systems.o: $(SRCDIR)/remote_systems.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Compile search.cpp
+$(OBJDIR)/search.o: $(SRCDIR)/search.cpp $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Clean

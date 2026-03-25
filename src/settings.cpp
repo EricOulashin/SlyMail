@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "remote_systems.h"
 
 using std::string;
 using std::ifstream;
@@ -7,10 +8,14 @@ using std::ofstream;
 // Settings INI filename
 const char* SETTINGS_FILENAME = "slymail.ini";
 
-// Global settings directory (set from argv[0] in main)
+// Global settings directory — now defaults to the SlyMail data directory
 string& settingsDir()
 {
-    static string dir = ".";
+    static string dir;
+    if (dir.empty())
+    {
+        dir = getSlyMailDataDir();
+    }
     return dir;
 }
 
@@ -43,10 +48,17 @@ Settings::Settings()
     , showTearLine(true)
     , useScrollbar(true)
     , stripAnsi(false)
+    , attrSynchronet(true)
+    , attrWWIV(true)
+    , attrCelerity(true)
+    , attrRenegade(true)
+    , attrPCBoard(true)
+    , useRegexSearch(false)
     , lightbarMode(true)
     , reverseOrder(false)
     , iceThemeFile("")
     , dctThemeFile("")
+    , showSplashScreen(true)
     , userName("")
     , replyDir("")
 {
@@ -136,12 +148,19 @@ bool Settings::load()
         else if (key == "showTearLine")      { showTearLine = (val == "true" || val == "1"); }
         else if (key == "useScrollbar")      { useScrollbar = (val == "true" || val == "1"); }
         else if (key == "stripAnsi")         { stripAnsi = (val == "true" || val == "1"); }
+        else if (key == "attrSynchronet")     { attrSynchronet = (val == "true" || val == "1"); }
+        else if (key == "attrWWIV")          { attrWWIV = (val == "true" || val == "1"); }
+        else if (key == "attrCelerity")      { attrCelerity = (val == "true" || val == "1"); }
+        else if (key == "attrRenegade")      { attrRenegade = (val == "true" || val == "1"); }
+        else if (key == "attrPCBoard")       { attrPCBoard = (val == "true" || val == "1"); }
+        else if (key == "useRegexSearch")    { useRegexSearch = (val == "true" || val == "1"); }
         else if (key == "lightbarMode")      { lightbarMode = (val == "true" || val == "1"); }
         else if (key == "reverseOrder")      { reverseOrder = (val == "true" || val == "1"); }
         else if (key == "iceThemeFile")      { iceThemeFile = val; }
         else if (key == "dctThemeFile")      { dctThemeFile = val; }
         else if (key == "lastDirectory")     { lastDirectory = val; }
         else if (key == "lastQwkFile")       { lastQwkFile = val; }
+        else if (key == "showSplashScreen")  { showSplashScreen = (val == "true" || val == "1"); }
         else if (key == "userName")          { userName = val; }
         else if (key == "replyDir")          { replyDir = val; }
     }
@@ -222,6 +241,19 @@ bool Settings::save() const
     f << "\n; Strip ANSI escape codes from message text\n";
     f << "stripAnsi=" << (stripAnsi ? "true" : "false") << "\n";
 
+    f << "\n; Attribute code toggles - enable/disable interpreting color/attribute\n";
+    f << "; codes from various BBS software packages. ANSI escape codes are always\n";
+    f << "; interpreted unless stripAnsi is enabled above.\n";
+    f << "; These settings affect both the message reader and the message editor.\n";
+    f << "attrSynchronet=" << (attrSynchronet ? "true" : "false") << "\n";
+    f << "attrWWIV=" << (attrWWIV ? "true" : "false") << "\n";
+    f << "attrCelerity=" << (attrCelerity ? "true" : "false") << "\n";
+    f << "attrRenegade=" << (attrRenegade ? "true" : "false") << "\n";
+    f << "attrPCBoard=" << (attrPCBoard ? "true" : "false") << "\n";
+
+    f << "\n; Search using regular expressions instead of plain substring matching\n";
+    f << "useRegexSearch=" << (useRegexSearch ? "true" : "false") << "\n";
+
     f << "\n[MessageList]\n\n";
 
     f << "; Use lightbar-style navigation in the message list\n";
@@ -241,7 +273,10 @@ bool Settings::save() const
 
     f << "\n[General]\n\n";
 
-    f << "; Last directory browsed for QWK files\n";
+    f << "; Show the splash screen when SlyMail starts\n";
+    f << "showSplashScreen=" << (showSplashScreen ? "true" : "false") << "\n";
+
+    f << "\n; Last directory browsed for QWK files\n";
     f << "lastDirectory=" << lastDirectory << "\n";
 
     f << "\n; Last QWK file that was opened\n";

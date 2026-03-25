@@ -11,9 +11,10 @@ SlyMail was created with the help of Claude AI.
 ### QWK Packet Support
 - Opens and reads standard QWK mail packets (.qwk files)
 - Parses CONTROL.DAT, MESSAGES.DAT, and NDX index files
-- Supports HEADERS.DAT (QWKE extended format)
+- Full QWKE (extended QWK) support via HEADERS.DAT — offset-based matching for accurate extended To/From/Subject fields, UTF-8 flag, and RFC822 Message-ID
+- QWKE body kludge parsing (`To:`, `From:`, `Subject:` at message start)
 - Handles Synchronet-style conference numbering
-- Creates REP reply packets (.rep files) for uploading back to the BBS
+- Creates REP reply packets (.rep files) for uploading back to the BBS, including HEADERS.DAT for extended fields and VOTING.DAT for pending votes
 - Supports Microsoft Binary Format (MBF) float encoding in NDX files
 - Remembers last opened QWK file and directory between sessions
 
@@ -27,6 +28,38 @@ SlyMail was created with the help of Claude AI.
 - Keyboard navigation: First/Last/Next/Previous message, Page Up/Down
 - Help screens accessible with `?` or `F1` in all views
 
+### BBS Color & Attribute Code Support
+SlyMail interprets color/attribute codes from multiple BBS software packages, rendering them as colored text in both the message reader and the message editor. Supported formats:
+- **ANSI escape codes** — always enabled; standard SGR sequences (ESC[...m) for foreground, background, bold
+- **Synchronet Ctrl-A codes** — `\x01` + attribute character (e.g., `\x01c` for cyan, `\x01h` for bright)
+- **WWIV heart codes** — `\x03` + digit 0–9
+- **PCBoard/Wildcat @X codes** — `@X##` where the two hex digits encode background and foreground color
+- **Celerity pipe codes** — `|` + letter (e.g., `|c` for cyan, `|W` for bright white)
+- **Renegade pipe codes** — `|` + two-digit number 00–31
+
+Each BBS code type can be individually enabled or disabled via the **Attribute code toggles** sub-dialog in Reader Settings or the `config` utility. These toggles affect both the reader and the editor. A separate **Strip ANSI codes** option removes all ANSI sequences from messages when enabled.
+
+### File Attachments
+- Detects file attachments referenced via `@ATTACH:` kludge lines in message bodies
+- Shows an **[ATT]** indicator in the message header when attachments are present
+- Press **D** or **Ctrl-D** in the reader to download attachments — shows a file list with sizes and prompts for a destination directory
+
+### Voting & Polls (Synchronet QWKE)
+SlyMail supports the Synchronet VOTING.DAT extension for polls and message voting:
+- **Polls**: Messages identified as polls display their answer options with vote counts and percentage bars. Press **V** to open a ballot dialog where you can toggle answer selections and cast your vote.
+- **Up/Down votes**: For regular (non-poll) messages, press **V** to up-vote or down-vote. Current vote tallies and score are shown in the message header.
+- **Vote tallies**: The message header displays up-vote/down-vote counts and net score, with an indicator if you have already voted.
+- **Vote queueing**: Votes are queued alongside message replies and written to VOTING.DAT in the REP packet for upload to the BBS.
+- **Poll browser**: Press **V** from the conference list to browse all polls in the packet.
+
+### UTF-8 Support
+- Detects UTF-8 content in messages (via HEADERS.DAT `Utf8` flag and automatic detection of UTF-8 byte sequences)
+- Displays UTF-8 characters correctly on compatible terminals
+- Shows a **[UTF8]** indicator in the message header for UTF-8 messages
+- Saves new messages with proper encoding
+- CP437 to UTF-8 conversion for legacy BBS content
+- Sets locale on Linux/macOS/BSD (`setlocale(LC_ALL, "")`) and UTF-8 code page on Windows for proper terminal rendering
+
 ### Message Editor (inspired by SlyEdit)
 - **Two visual modes**: Ice and DCT, each with distinct color schemes and layouts
 - **Random mode**: Randomly selects Ice or DCT on each edit session
@@ -36,6 +69,8 @@ SlyMail was created with the help of Claude AI.
 - Quote window for selecting and inserting quoted text (Ctrl-Q to open/close)
 - Reply and new message composition
 - ESC menu for save, abort, insert/overwrite toggle, and more
+- **Ctrl-K color picker**: Opens a dialog to select foreground and background colors, inserting an ANSI escape code at the cursor position. Supports 16 foreground colors (8 normal + 8 bright) and 8 backgrounds, with a live preview. Press **N** to insert a reset code.
+- **Color-aware rendering**: The edit area renders ANSI and BBS attribute codes inline, so colored text is displayed as you type
 - **Ctrl-U user settings dialog** for configuring editor preferences on the fly
 - **Style-specific yes/no prompts**: Ice mode uses a bottom-of-screen inline prompt; DCT mode uses a centered dialog box with themed colors
 
@@ -72,29 +107,54 @@ SlyMail was created with the help of Claude AI.
 
 ### REP Packet Creation
 - When you write replies or new messages, they are queued as pending
-- On exit (or when opening a new QWK file), SlyMail prompts to save pending messages
-- Creates a standard `.rep` file (ZIP archive containing MESSAGES.DAT) for uploading to the BBS
+- Votes (poll ballots, up/down votes) are also queued alongside replies
+- On exit (or when opening a new QWK file), SlyMail prompts to save all pending items
+- Creates a standard `.rep` file (ZIP archive) for uploading to the BBS, containing:
+  - `<BBSID>.MSG` — reply messages in standard QWK format
+  - `HEADERS.DAT` — QWKE extended headers for fields exceeding 25 characters
+  - `VOTING.DAT` — pending votes in Synchronet-compatible INI format
 - REP file is saved as `<BBS-ID>.rep` in the configured reply directory (or the QWK file's directory)
 
+### Remote Systems (Ctrl-R)
+SlyMail can download QWK packets directly from remote systems via FTP or SFTP (SSH):
+- Press **Ctrl-R** from the file browser to open the remote systems directory
+- **Add/Edit/Delete** remote system entries with: name, host, port, connection type (FTP or SSH), username, password, passive FTP toggle, and initial remote path
+- **Browse remote directories** with a file/directory browser similar to the local file browser — navigate into directories, go up with `..`, jump to root with `/`
+- **Download QWK files** from the remote system directly into the `QWK` subdirectory of the SlyMail data directory
+- Remote system entries are persisted to `remote_systems.json` in the SlyMail data directory
+- Last connection date/time is tracked for each system
+- Uses the system's `curl` command for FTP and SFTP transfers (no compile-time library dependencies)
+
 ### Application Settings
-- Persistent settings saved to user config directory
+- Persistent settings saved to `slymail.ini` in the SlyMail data directory (`~/.slymail` on Linux/macOS/BSD, or the user's home directory on Windows)
+- The SlyMail data directory and its `QWK` subdirectory are created automatically on first run
+- Default QWK file browse and REP packet save directory is `~/.slymail/QWK`
 - Remembers last browsed directory and QWK filename
 - Ctrl-L hotkey to load a different QWK file from conference or message list views
 - Configurable quote prefix, quote line width, user name
-- Reader options: show/hide kludge lines, tear/origin lines, scrollbar
+- Reader options: show/hide kludge lines, tear/origin lines, scrollbar, strip ANSI codes
+- Per-BBS attribute code toggles (Synchronet, WWIV, Celerity, Renegade, PCBoard/Wildcat) — affect both reader and editor
 - REP packet output directory
 
 ## Screenshots
 
 <p align="center">
-	<a href="screenshots/SlyMail_1_OpeningScreen.png" target='_blank'><img src="screenshots/SlyMail_1_OpeningScreen.png" alt="Opening screen" width="800"></a>
-	<a href="screenshots/SlyMail_2_File_Chooser.png" target='_blank'><img src="screenshots/SlyMail_2_File_Chooser.png" alt="File chooser: Browsing for QWK file" width="800"></a>
-	<a href="screenshots/SlyMail_3_msg_area_list.png" target='_blank'><img src="screenshots/SlyMail_3_msg_area_list.png" alt="Message area list" width="800"></a>
-	<a href="screenshots/SlyMail_4_msg_list.png" target='_blank'><img src="screenshots/SlyMail_4_msg_list.png" alt="Message list" width="800"></a>
-	<a href="screenshots/SlyMail_5_reading_msg.png" target='_blank'><img src="screenshots/SlyMail_5_reading_msg.png" alt="Reading a message" width="800"></a>
-	<a href="screenshots/SlyMail_6_msg_edit_start.png" target='_blank'><img src="screenshots/SlyMail_6_msg_edit_start.png" alt="Message edit start" width="800"></a>
-	<a href="screenshots/SlyMail_7_quote_line_selection.png" target='_blank'><img src="screenshots/SlyMail_7_quote_line_selection.png" alt="Editor: Quote line selection" width="800"></a>
-	<a href="screenshots/SlyMail_8_writing_reply_msg.png" target='_blank'><img src="screenshots/SlyMail_8_writing_reply_msg.png" alt="Editor: Editing a message" width="800"></a>
+	<a href="screenshots/SlyMail_01_OpeningScreen.png" target='_blank'><img src="screenshots/SlyMail_1_OpeningScreen.png" alt="Opening screen" width="800"></a>
+	<a href="screenshots/SlyMail_02_File_Chooser.png" target='_blank'><img src="screenshots/SlyMail_2_File_Chooser.png" alt="File chooser: Browsing for QWK file" width="800"></a>
+	<a href="screenshots/SlyMail_03_msg_area_list.png" target='_blank'><img src="screenshots/SlyMail_3_msg_area_list.png" alt="Message area list" width="800"></a>
+	<a href="screenshots/SlyMail_04_msg_list.png" target='_blank'><img src="screenshots/SlyMail_4_msg_list.png" alt="Message list" width="800"></a>
+	<a href="screenshots/SlyMail_05_reading_msg.png" target='_blank'><img src="screenshots/SlyMail_5_reading_msg.png" alt="Reading a message" width="800"></a>
+	<a href="screenshots/SlyMail_06_msg_edit_start.png" target='_blank'><img src="screenshots/SlyMail_6_msg_edit_start.png" alt="Start of editing a message" width="800"></a>
+	<a href="screenshots/SlyMail_07_quote_line_selection.png" target='_blank'><img src="screenshots/SlyMail_7_quote_line_selection.png" alt="Editor: Quote line selection" width="800"></a>
+	<a href="screenshots/SlyMail_08_writing_reply_msg.png" target='_blank'><img src="screenshots/SlyMail_8_writing_reply_msg.png" alt="Editor: Editing a message" width="800"></a>
+	<a href="screenshots/SlyMail_09_editor_color_picker.png" target='_blank'><img src="screenshots/SlyMail_9_editor_color_picker.png" alt="Editor: Color picker" width="800"></a>
+	<a href="screenshots/SlyMail_10_Sync_poll_msg.png" target='_blank'><img src="screenshots/SlyMail_10_Sync_poll_msg.png" alt="Synchronet poll message" width="800"></a>
+	<a href="screenshots/SlyMail_11_reader_settings.png" target='_blank'><img src="screenshots/SlyMail_11_reader_settings.png" alt="Reader settings" width="800"></a>
+	<a href="screenshots/SlyMail_12_editor_settings.png" target='_blank'><img src="screenshots/SlyMail_12_editor_settings.png" alt="Editor settings" width="800"></a>
+	<a href="screenshots/SlyMail_13_msg_search.png" target='_blank'><img src="screenshots/SlyMail_13_msg_search.png" alt="Message Search" width="800"></a>
+	<a href="screenshots/SlyMail_14_Advanced_msg_search.png" target='_blank'><img src="screenshots/SlyMail_14_Advanced_msg_search.png" alt="Advanced Message Search" width="800"></a>
+	<a href="screenshots/SlyMail_15_advanced_msg_search_date_picker" target='_blank'><img src="screenshots/SlyMail_15_advanced_msg_search_date_picker" alt="Date Picker in Advanced Message Search" width="800"></a>
+	<a href="screenshots/SlyMail_16_config_program.png" target='_blank'><img src="screenshots/SlyMail_16_config_program.png" alt="Configuration Program" width="800"></a>
 </p>
 
 ## Building
@@ -106,6 +166,7 @@ SlyMail was created with the help of Claude AI.
 - ncurses development library (`libncurses-dev` on Debian/Ubuntu, `ncurses-devel` on Fedora/RHEL)
 - `unzip` command (for extracting QWK packets)
 - `zip` command (for creating REP packets)
+- `curl` command (for remote system FTP/SFTP transfers — optional, only needed for the remote systems feature)
 
 **Windows (Visual Studio 2022):**
 - Visual Studio 2022 with the "Desktop development with C++" workload
@@ -196,7 +257,7 @@ The Makefile automatically detects the platform and uses the appropriate termina
 The `config` utility provides a standalone text-based interface for configuring SlyMail settings without opening the main application. It offers four configuration categories:
 
 - **Editor Settings** - All the same settings available via Ctrl-U in the editor (editor style, taglines, spell-check, quoting options, etc.)
-- **Reader Settings** - Toggle kludge lines, tear lines, scrollbar, ANSI stripping, lightbar mode, reverse order
+- **Reader Settings** - Toggle kludge lines, tear lines, scrollbar, ANSI stripping, lightbar mode, reverse order, and attribute code toggles (per-BBS enable/disable)
 - **Theme Settings** - Select Ice and DCT color theme files from the `config_files/` directory
 - **General Settings** - Set your name for replies and the REP packet output directory
 
@@ -204,11 +265,20 @@ Settings are saved automatically when exiting each category. Both SlyMail and th
 
 ### Key Bindings
 
+#### File Browser
+| Key | Action |
+|-----|--------|
+| Up/Down | Navigate files and directories |
+| Enter | Open directory / Select QWK file |
+| Ctrl-R | Open remote systems directory |
+| Q / ESC | Quit |
+
 #### Conference List
 | Key | Action |
 |-----|--------|
 | Up/Down | Navigate conferences |
 | Enter | Open selected conference |
+| V | View polls/votes in packet |
 | O / Ctrl-L | Open a different QWK file |
 | S / Ctrl-U | Settings |
 | Q / ESC | Quit SlyMail |
@@ -234,8 +304,11 @@ Settings are saved automatically when exiting each category. Both SlyMail and th
 | Left/Right | Previous / Next message |
 | F / L | First / Last message |
 | R | Reply to message |
-| K | Toggle kludge lines |
-| Q / ESC | Back to message list |
+| V | Vote (up/down vote or poll ballot) |
+| D / Ctrl-D | Download file attachments |
+| H | Show message header information |
+| S / Ctrl-U | Settings |
+| C / Q / ESC | Back to message list |
 | ? / F1 | Help |
 
 #### Message Editor
@@ -244,6 +317,11 @@ Settings are saved automatically when exiting each category. Both SlyMail and th
 | ESC | Editor menu (Save, Abort, etc.) |
 | Ctrl-U | User settings dialog |
 | Ctrl-Q | Open/close quote window |
+| Ctrl-K | Color picker (insert ANSI color code at cursor) |
+| Ctrl-G | Insert graphic (CP437) character by code |
+| Ctrl-W | Word/text search |
+| Ctrl-S | Change subject |
+| Ctrl-D | Delete current line |
 | Ctrl-Z | Save message |
 | Ctrl-A | Abort message |
 | F1 | Help screen |
@@ -279,13 +357,17 @@ CP437 box-drawing and special characters are defined in `cp437defs.h` and render
 | `colors.h` | Color scheme definitions (Ice, DCT, reader, list) |
 | `theme.h` | Theme config file parser (Synchronet-style attribute codes) |
 | `ui_common.h` | Shared UI helpers (dialogs, text input, scrollbar, etc.) |
-| `qwk.h` / `qwk.cpp` | QWK/REP packet parser and creator |
+| `qwk.h` / `qwk.cpp` | QWK/REP packet parser and creator (QWKE, attachments, voting) |
+| `bbs_colors.h` / `bbs_colors.cpp` | BBS color/attribute code parser (ANSI, Synchronet, WWIV, PCBoard, Celerity, Renegade) |
+| `utf8_util.h` / `utf8_util.cpp` | UTF-8 utilities (validation, display width, CP437-to-UTF-8 conversion) |
+| `voting.h` / `voting.cpp` | VOTING.DAT parser, vote tallying, poll display UI |
+| `remote_systems.h` / `remote_systems.cpp` | Remote systems directory, FTP/SFTP browsing, JSON persistence, home dir utilities |
 | `settings.h` | User settings persistence |
-| `settings_dialog.h` | Settings dialogs (editor and application) |
+| `settings_dialog.h` | Settings dialogs (editor, reader, attribute code toggles) |
 | `file_browser.h` | QWK file browser and selector |
 | `msg_list.h` | Conference and message list views |
-| `msg_reader.h` | Message reader (DDMsgReader-style) |
-| `msg_editor.h` | Message editor (SlyEdit Ice/DCT-style) |
+| `msg_reader.h` | Message reader (DDMsgReader-style) with voting and attachment UI |
+| `msg_editor.h` | Message editor (SlyEdit Ice/DCT-style) with color picker |
 | `main.cpp` | SlyMail application entry point and main loop |
 | `config.cpp` | Standalone configuration utility |
 
@@ -312,6 +394,16 @@ promptSpellCheck=false
 
 ; Show kludge/control lines (@MSGID, @REPLY, etc.) in the message reader
 showKludgeLines=false
+
+; Strip ANSI escape codes from message text
+stripAnsi=false
+
+; Attribute code toggles (affect both reader and editor)
+attrSynchronet=true
+attrWWIV=true
+attrCelerity=true
+attrRenegade=true
+attrPCBoard=true
 
 [Themes]
 

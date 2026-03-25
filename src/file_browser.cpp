@@ -1,4 +1,6 @@
 #include "file_browser.h"
+#include "remote_systems.h"
+#include <cctype>
 
 using std::string;
 using std::vector;
@@ -93,7 +95,7 @@ bool isQwkFile(const string& name)
     string ext = name.substr(name.size() - 4);
     for (auto& c : ext)
     {
-        c = tolower(c);
+        c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
     }
     return ext == ".qwk";
 }
@@ -311,7 +313,10 @@ string showFileBrowser(const string& startDir,
             drawSB();
             drawStatus();
             drawDDHelpBar(LINES - 1, "Up/Dn/PgUp/PgDn/HOME/END, ",
-                {{'Q', "uit"}});
+                {{'Q', "uit"}, {'?', ""}});
+            // Show Ctrl-R hint on the far right
+            printAt(LINES - 1, COLS - 18, "Ctrl-R=Remote",
+                    tAttr(TC_RED, TC_WHITE, false));
 
             needFullRedraw = false;
         }
@@ -385,6 +390,51 @@ string showFileBrowser(const string& startDir,
                     }
                 }
                 break;
+            case TK_CTRL_R:
+            {
+                // Remote systems directory
+                string dataDir = getSlyMailDataDir();
+                string downloadDir = dataDir + PATH_SEP_STR + "QWK";
+                string result = showRemoteSystems(dataDir, downloadDir);
+                if (!result.empty())
+                {
+                    return result; // Downloaded QWK file path
+                }
+                needFullRedraw = true;
+                break;
+            }
+            case '?':
+            case TK_F1:
+            {
+                g_term->clear();
+                int r = 1;
+                drawProgramInfoLine(r++);
+                r++;
+                printCentered(r++, "File Browser Help",
+                    tAttr(TC_GREEN, TC_BLACK, true));
+                r++;
+                TermAttr keyC  = tAttr(TC_CYAN, TC_BLACK, true);
+                TermAttr descC = tAttr(TC_CYAN, TC_BLACK, false);
+                auto helpLine = [&](const string& key, const string& desc)
+                {
+                    printAt(r, 2, padStr(key, 20), keyC);
+                    printAt(r, 24, ": " + desc, descC);
+                    ++r;
+                };
+                helpLine("Up/Down arrow", "Navigate files and directories");
+                helpLine("PageUp/PageDown", "Scroll up/down a page");
+                helpLine("HOME/END", "Jump to first/last entry");
+                helpLine("Enter", "Open directory or select QWK file");
+                helpLine("Ctrl-R", "Open remote systems directory");
+                helpLine("Q / ESC", "Quit SlyMail");
+                helpLine("? / F1", "Show this help screen");
+                r += 2;
+                printAt(r, 2, "Hit a key", tAttr(TC_GREEN, TC_BLACK, false));
+                g_term->refresh();
+                g_term->getKey();
+                needFullRedraw = true;
+                break;
+            }
             case 'q':
             case 'Q':
             case TK_ESCAPE:

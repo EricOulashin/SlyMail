@@ -14,6 +14,8 @@
 #include "msg_editor.h"
 #include "settings_dialog.h"
 #include "program_info.h"
+#include "voting.h"
+#include "remote_systems.h"
 
 #include <ctime>
 #include <optional>
@@ -48,7 +50,7 @@ void showSplashScreen()
         tAttr(TC_CYAN, TC_BLACK, false));
 
     printCentered(centerY + 7,
-        "QWK Offline Mail Reader v" + std::string(PROGRAM_VERSION),
+        "QWK Offline Mail Reader v" + string(PROGRAM_VERSION),
         tAttr(TC_WHITE, TC_BLACK, true));
 
     printCentered(centerY + 9,
@@ -63,15 +65,68 @@ void showSplashScreen()
     g_term->getKey();
 }
 
+// Print command-line help and exit
+static void showCommandLineHelp()
+{
+    printf("%s v%s (%s)\n", PROGRAM_NAME, PROGRAM_VERSION, PROGRAM_DATE);
+    printf("QWK Offline Mail Reader\n\n");
+    printf("Usage: slymail [options] [qwk_file]\n\n");
+    printf("Options:\n");
+    printf("  -qwk_file=<path>   Open the specified QWK packet file on startup\n");
+    printf("  -v, --version      Show version information and exit\n");
+    printf("  -?, -help, --help  Show this help message and exit\n\n");
+    printf("Examples:\n");
+    printf("  slymail                              Launch with file browser\n");
+    printf("  slymail MYBBS.qwk                    Open a QWK packet directly\n");
+    printf("  slymail -qwk_file=/path/to/FILE.qwk  Open a QWK packet by path\n\n");
+    printf("Data directory: ~/.slymail\n");
+    printf("  Settings:    ~/.slymail/slymail.ini\n");
+    printf("  QWK files:   ~/.slymail/QWK/\n");
+    printf("  Remote sys:  ~/.slymail/remote_systems.json\n");
+}
+
+// Check if an argument is a help flag
+static bool isHelpArg(const char* arg)
+{
+    return strcmp(arg, "-?") == 0
+        || strcmp(arg, "--?") == 0
+        || strcmp(arg, "/?") == 0
+        || strcmp(arg, "-help") == 0
+        || strcmp(arg, "--help") == 0
+        || strcmp(arg, "/help") == 0;
+}
+
+// Check if an argument is a version flag
+static bool isVersionArg(const char* arg)
+{
+    return strcmp(arg, "-v") == 0
+        || strcmp(arg, "--version") == 0;
+}
+
 // Main application loop
 int main(int argc, char* argv[])
 {
+    // Check for help/version flags before initializing anything
+    for (int i = 1; i < argc; ++i)
+    {
+        if (isHelpArg(argv[i]))
+        {
+            showCommandLineHelp();
+            return 0;
+        }
+        if (isVersionArg(argv[i]))
+        {
+            printf("%s v%s (%s)\n", PROGRAM_NAME, PROGRAM_VERSION, PROGRAM_DATE);
+            return 0;
+        }
+    }
+
     // Seed random for Random editor style
     srand(static_cast<unsigned>(time(nullptr)));
 
     // Determine base directory (where the executable lives)
-    // Settings file, config/, and dictionaries/ are relative to this
-    std::string baseDir = ".";
+    // Theme files, dictionaries, and taglines are relative to this
+    string baseDir = ".";
     if (argc > 0 && argv[0] != nullptr)
     {
         fs::path exePath = fs::path(argv[0]).parent_path();
@@ -80,7 +135,11 @@ int main(int argc, char* argv[])
             baseDir = exePath.string();
         }
     }
-    settingsDir() = baseDir;
+
+    // Settings are stored in the SlyMail data directory (~/.slymail)
+    // getSlyMailDataDir() creates it and the QWK subdirectory if needed
+    string dataDir = getSlyMailDataDir();
+    settingsDir() = dataDir;
 
     // Initialize terminal
     auto terminal = createTerminal();
@@ -91,27 +150,52 @@ int main(int argc, char* argv[])
     Settings settings;
     settings.load();
 
-    // Show splash screen
-    showSplashScreen();
+    // Parse command-line parameters before showing splash screen
+    // Supports: -name=value format (e.g., -qwk_file=/path/to/file.qwk)
+    // Also supports a bare positional argument for backward compatibility
+    string initialFile;
+    for (int i = 1; i < argc; ++i)
+    {
+        string arg = argv[i];
+        if (arg.size() > 1 && arg[0] == '-')
+        {
+            // Named parameter: -name=value
+            size_t eqPos = arg.find('=');
+            if (eqPos != string::npos)
+            {
+                string name = arg.substr(1, eqPos - 1);
+                string value = arg.substr(eqPos + 1);
+                if (name == "qwk_file")
+                {
+                    initialFile = value;
+                }
+            }
+        }
+        else if (initialFile.empty())
+        {
+            // Bare positional argument (backward compatibility)
+            initialFile = arg;
+        }
+    }
+
+    // Show splash screen if enabled and no QWK file was specified on the command line
+    if (initialFile.empty() && settings.showSplashScreen)
+    {
+        showSplashScreen();
+    }
 
     // Main application state
-    std::optional<QwkPacket> currentPacket;
-    std::vector<QwkReply> pendingReplies;
+    optional<QwkPacket> currentPacket;
+    vector<QwkReply> pendingReplies;
+    vector<PendingVote> pendingVotes;
     bool running = true;
-
-    // Check if a QWK file was passed as command line argument
-    std::string initialFile;
-    if (argc > 1)
-    {
-        initialFile = argv[1];
-    }
 
     while (running)
     {
         // If no packet is open, show the file browser
         if (!currentPacket.has_value())
         {
-            std::string qwkFile;
+            string qwkFile;
             if (!initialFile.empty())
             {
                 qwkFile = initialFile;
@@ -119,7 +203,13 @@ int main(int argc, char* argv[])
             }
             else
             {
-                qwkFile = showFileBrowser(settings.lastDirectory, settings.lastQwkFile);
+                // Default browse directory is the QWK subdirectory in the data dir
+                string browseDir = settings.lastDirectory;
+                if (browseDir.empty())
+                {
+                    browseDir = dataDir + PATH_SEP_STR + "QWK";
+                }
+                qwkFile = showFileBrowser(browseDir, settings.lastQwkFile);
             }
 
             if (qwkFile.empty())
@@ -161,9 +251,9 @@ int main(int argc, char* argv[])
 
         // Conference list loop
         bool inConfList = true;
+        int selectedConf = 0;
         while (inConfList && running)
         {
-            int selectedConf = 0;
             ConfListResult confResult = showConferenceList(*currentPacket,
                                                            selectedConf, settings);
 
@@ -174,10 +264,10 @@ int main(int argc, char* argv[])
                     // Enter the selected conference
                     auto& conf = currentPacket->conferences[selectedConf];
                     bool inMsgList = true;
+                    int selectedMsg = 0;
 
                     while (inMsgList && running)
                     {
-                        int selectedMsg = 0;
                         MsgListResult msgResult = showMessageList(conf, selectedMsg,
                             settings, currentPacket->info.bbsName);
 
@@ -206,12 +296,16 @@ int main(int argc, char* argv[])
                                         break;
                                     }
 
+                                    PendingVote lastVote;
                                     MsgReadResult readResult = showMessageReader(
                                         conf.messages[currentMsg],
                                         conf.name,
                                         currentMsg,
                                         static_cast<int>(conf.messages.size()),
-                                        settings);
+                                        settings,
+                                        currentPacket->extractDir,
+                                        &currentPacket->voting,
+                                        &lastVote);
 
                                     switch (readResult)
                                     {
@@ -251,6 +345,38 @@ int main(int argc, char* argv[])
                                                     std::to_string(pendingReplies.size()) +
                                                     " pending reply(s).");
                                             }
+                                            break;
+                                        }
+                                        case MsgReadResult::Vote:
+                                        {
+                                            pendingVotes.push_back(lastVote);
+                                            // Update the message's userVoted flag locally
+                                            auto& votedMsg = conf.messages[currentMsg];
+                                            if (lastVote.upVote)
+                                            {
+                                                votedMsg.userVoted = 1;
+                                                ++votedMsg.upvotes;
+                                            }
+                                            else if (lastVote.downVote)
+                                            {
+                                                votedMsg.userVoted = 2;
+                                                ++votedMsg.downvotes;
+                                            }
+                                            else if (lastVote.votes != 0)
+                                            {
+                                                votedMsg.userVoted = lastVote.votes;
+                                            }
+                                            string voteDesc;
+                                            if (lastVote.upVote)
+                                                voteDesc = "Up-vote";
+                                            else if (lastVote.downVote)
+                                                voteDesc = "Down-vote";
+                                            else
+                                                voteDesc = "Poll vote";
+                                            messageDialog("Vote Queued",
+                                                voteDesc + " queued. " +
+                                                std::to_string(pendingVotes.size()) +
+                                                " pending vote(s).");
                                             break;
                                         }
                                         case MsgReadResult::Settings:
@@ -304,17 +430,19 @@ int main(int argc, char* argv[])
                                 {
                                     if (confirmDialog("Save pending replies before opening new file?"))
                                     {
-                                        std::string repDir = settings.replyDir;
+                                        string repDir = settings.replyDir;
                                         if (repDir.empty())
                                         {
                                             repDir = fs::path(currentPacket->sourceFile).parent_path().string();
                                         }
-                                        std::string repFile = repDir + PATH_SEP_STR
+                                        string repFile = repDir + PATH_SEP_STR
                                             + currentPacket->info.bbsID + ".rep";
                                         createRepPacket(repFile, currentPacket->info.bbsID,
-                                                        settings.userName, pendingReplies);
+                                                        settings.userName, pendingReplies,
+                                                        pendingVotes);
                                     }
                                     pendingReplies.clear();
+                                    pendingVotes.clear();
                                 }
                                 if (currentPacket.has_value())
                                 {
@@ -337,15 +465,16 @@ int main(int argc, char* argv[])
                     {
                         if (confirmDialog("Save pending replies before opening new file?"))
                         {
-                            std::string repDir = settings.replyDir;
+                            string repDir = settings.replyDir;
                             if (repDir.empty())
                             {
                                 repDir = fs::path(currentPacket->sourceFile).parent_path().string();
                             }
-                            std::string repFile = repDir + PATH_SEP_STR
+                            string repFile = repDir + PATH_SEP_STR
                                 + currentPacket->info.bbsID + ".rep";
                             if (createRepPacket(repFile, currentPacket->info.bbsID,
-                                               settings.userName, pendingReplies))
+                                               settings.userName, pendingReplies,
+                                               pendingVotes))
                             {
                                 messageDialog("REP Saved",
                                     "Reply packet saved: " + repFile);
@@ -365,6 +494,16 @@ int main(int argc, char* argv[])
                     currentPacket.reset();
                     inConfList = false;
                     break;
+                case ConfListResult::Voting:
+                    if (!currentPacket->voting.empty())
+                    {
+                        showVotingList(currentPacket->voting, settings);
+                    }
+                    else
+                    {
+                        messageDialog("Voting", "No polls/votes found in this packet.");
+                    }
+                    break;
                 case ConfListResult::Settings:
                     showSettingsDialog(settings, baseDir);
                     break;
@@ -376,35 +515,26 @@ int main(int argc, char* argv[])
         }
 
         // Before exiting or opening new file, offer to save replies
-        if (!running && !pendingReplies.empty())
+        if (!running && (!pendingReplies.empty() || !pendingVotes.empty()))
         {
-            if (confirmDialog("Save " + std::to_string(pendingReplies.size())
-                              + " pending reply(s) to REP packet?"))
+            int totalPending = static_cast<int>(pendingReplies.size() + pendingVotes.size());
+            if (confirmDialog("Save " + std::to_string(totalPending) + " pending item(s) to REP packet?"))
             {
-                std::string repDir = settings.replyDir;
+                string repDir = settings.replyDir;
                 if (repDir.empty() && currentPacket.has_value())
                 {
                     repDir = fs::path(currentPacket->sourceFile).parent_path().string();
                 }
                 if (repDir.empty())
                 {
-                    char* cwd = getcwd(nullptr, 0);
-                    if (cwd)
-                    {
-                        repDir = cwd;
-                        free(cwd);
-                    }
-                    else
-                    {
-                        repDir = ".";
-                    }
+                    repDir = dataDir + PATH_SEP_STR + "QWK";
                 }
 
-                std::string bbsID = currentPacket.has_value()
+                string bbsID = currentPacket.has_value()
                     ? currentPacket->info.bbsID : "REPLY";
-                std::string repFile = repDir + PATH_SEP_STR + bbsID + ".rep";
+                string repFile = repDir + PATH_SEP_STR + bbsID + ".rep";
 
-                if (createRepPacket(repFile, bbsID, settings.userName, pendingReplies))
+                if (createRepPacket(repFile, bbsID, settings.userName, pendingReplies, pendingVotes))
                 {
                     // Brief message before exit
                     printCentered(g_term->getRows() / 2, "REP packet saved: " + repFile,

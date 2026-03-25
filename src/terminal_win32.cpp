@@ -74,7 +74,20 @@ void Win32Terminal::init()
     SetConsoleMode(m_hInput, mode);
 
     setCursorVisible(false);
-    SetConsoleOutputCP(437);
+
+    // Enable UTF-8 output on Windows (CP 65001)
+    // This allows UTF-8 encoded strings to display correctly.
+    // Fall back to CP437 if needed for box drawing etc.
+    SetConsoleOutputCP(65001);
+    SetConsoleCP(65001);
+
+    // Enable virtual terminal processing for ANSI sequences
+    DWORD outMode;
+    if (GetConsoleMode(m_hConsole, &outMode))
+    {
+        outMode |= 0x0004; // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        SetConsoleMode(m_hConsole, outMode);
+    }
 }
 
 void Win32Terminal::shutdown()

@@ -1,4 +1,5 @@
 #include "msg_list.h"
+#include "search.h"
 
 using std::string;
 using std::vector;
@@ -6,13 +7,41 @@ using std::pair;
 
 // Show the conference list
 ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
-                                 const Settings& /* settings */)
+                                 const Settings& settings)
 {
     int selected = 0;
     int scrollOffset = 0;
     bool needFullRedraw = true;
     int prevSelected    = -1;
     int prevScrollOffset = -1;
+
+    // Filtered view: maps display index -> actual conference index
+    vector<int> filteredIdx;
+    bool isFiltered = false;
+    string searchLabel; // Shown in title when filtered
+
+    // Initialize with all conferences
+    for (int i = 0; i < static_cast<int>(packet.conferences.size()); ++i)
+    {
+        filteredIdx.push_back(i);
+    }
+
+    // Restore last selected conference position
+    if (selectedConf >= 0)
+    {
+        for (int i = 0; i < static_cast<int>(filteredIdx.size()); ++i)
+        {
+            if (filteredIdx[i] == selectedConf)
+            {
+                selected = i;
+                break;
+            }
+        }
+        if (selected >= static_cast<int>(filteredIdx.size()) && !filteredIdx.empty())
+        {
+            selected = static_cast<int>(filteredIdx.size()) - 1;
+        }
+    }
 
     while (true)
     {
@@ -24,7 +53,7 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
         int nameW        = COLS - numW - countW - 4;
         const int listTop = 4;
         int listHeight   = ROWS - 6;
-        int totalConfs   = static_cast<int>(packet.conferences.size());
+        int totalConfs   = static_cast<int>(filteredIdx.size());
 
         // Keep selected in view
         if (selected < scrollOffset)
@@ -39,7 +68,7 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
             if (idx < scrollOffset || idx >= scrollOffset + listHeight) return;
             int y = listTop + (idx - scrollOffset);
             bool isSel = (idx == selected);
-            const auto& conf = packet.conferences[idx];
+            const auto& conf = packet.conferences[filteredIdx[idx]];
 
             if (isSel)
             {
@@ -121,8 +150,17 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
 
             drawDDHelpBar(ROWS - 1,
                 "Up/Dn/PgUp/PgDn/HOME/END, ",
-                {{'E', "nter area"}, {'O', "pen file"},
+                {{'E', "nter area"}, {'/', "Search"}, {'O', "pen file"},
                  {'S', "ettings"}, {'Q', "uit"}, {'?', ""}});
+
+            // Show filter indicator if active
+            if (isFiltered)
+            {
+                string filterMsg = " Filter: \"" + searchLabel + "\" (" +
+                    std::to_string(totalConfs) + "/" +
+                    std::to_string(packet.conferences.size()) + ") ";
+                printAt(ROWS - 2, 0, filterMsg, tAttr(TC_YELLOW, TC_BLACK, true));
+            }
 
             needFullRedraw = false;
         }
@@ -176,20 +214,76 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
             case TK_ENTER:
                 if (totalConfs > 0)
                 {
-                    selectedConf = selected;
+                    selectedConf = filteredIdx[selected];
                     return ConfListResult::Selected;
                 }
                 break;
+            case '/':
+            {
+                // Search / filter conferences
+                bool clearSearch = false;
+                string searchText = showConfSearchPrompt(clearSearch);
+                if (clearSearch || searchText.empty())
+                {
+                    // Clear filter — show all conferences
+                    filteredIdx.clear();
+                    for (int i = 0; i < static_cast<int>(packet.conferences.size()); ++i)
+                    {
+                        filteredIdx.push_back(i);
+                    }
+                    isFiltered = false;
+                    searchLabel.clear();
+                }
+                else
+                {
+                    auto results = filterConferences(packet.conferences,
+                                                     searchText,
+                                                     settings.useRegexSearch);
+                    if (results.empty())
+                    {
+                        messageDialog("Search", "No conferences found matching the search.");
+                    }
+                    else
+                    {
+                        filteredIdx = results;
+                        isFiltered = true;
+                        searchLabel = searchText;
+                    }
+                }
+                selected = 0;
+                scrollOffset = 0;
+                needFullRedraw = true;
+                break;
+            }
             case 'o':
             case 'O':
             case TK_CTRL_L:
                 return ConfListResult::OpenFile;
+            case 'v':
+            case 'V':
+                return ConfListResult::Voting;
             case 's':
             case 'S':
             case TK_CTRL_U:
                 return ConfListResult::Settings;
             case 'q':
             case 'Q':
+                if (isFiltered)
+                {
+                    // Clear the search filter
+                    filteredIdx.clear();
+                    for (int i = 0; i < static_cast<int>(packet.conferences.size()); ++i)
+                    {
+                        filteredIdx.push_back(i);
+                    }
+                    isFiltered = false;
+                    searchLabel.clear();
+                    selected = 0;
+                    scrollOffset = 0;
+                    needFullRedraw = true;
+                    break;
+                }
+                return ConfListResult::Quit;
             case TK_ESCAPE:
             case TK_CTRL_C:
                 return ConfListResult::Quit;
@@ -233,15 +327,48 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
 
 // Show the message list for a conference (DDMsgReader-style lightbar)
 MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
-                              const Settings& /* settings */,
+                              const Settings& settings,
                               const string& bbsName)
 {
     int selected  = 0;
     int scrollOffset = 0;
-    int totalMsgs = static_cast<int>(conf.messages.size());
     bool needFullRedraw  = true;
     int prevSelected     = -1;
     int prevScrollOffset = -1;
+
+    // Filtered view: maps display index -> actual message index
+    vector<int> filteredIdx;
+    bool isFiltered = false;
+    string searchLabel;
+
+    // Initialize with all messages, excluding vote response messages
+    for (int i = 0; i < static_cast<int>(conf.messages.size()); ++i)
+    {
+        if (!conf.messages[i].isVoteResponse)
+        {
+            filteredIdx.push_back(i);
+        }
+    }
+
+    int totalMsgs = static_cast<int>(filteredIdx.size());
+
+    // Restore last selected position: find the filtered index that
+    // corresponds to the real message index in selectedMsg
+    if (selectedMsg >= 0)
+    {
+        for (int i = 0; i < totalMsgs; ++i)
+        {
+            if (filteredIdx[i] == selectedMsg)
+            {
+                selected = i;
+                break;
+            }
+        }
+        if (selected >= totalMsgs && totalMsgs > 0)
+        {
+            selected = totalMsgs - 1;
+        }
+    }
 
     while (true)
     {
@@ -266,13 +393,15 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
         if (selected >= scrollOffset + listHeight)
             scrollOffset = selected - listHeight + 1;
 
+        totalMsgs = static_cast<int>(filteredIdx.size());
+
         // ---- Per-row drawing lambda ----
         auto drawRow = [&](int idx) {
             if (idx < 0 || idx >= totalMsgs) return;
             if (idx < scrollOffset || idx >= scrollOffset + listHeight) return;
             int y = listTop + (idx - scrollOffset);
             bool isSel = (idx == selected);
-            const auto& msg = conf.messages[idx];
+            const auto& msg = conf.messages[filteredIdx[idx]];
 
             if (isSel)
             {
@@ -358,8 +487,18 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
 
             drawDDHelpBar(ROWS - 1,
                 "Up/Dn/PgUp/PgDn/HOME/END, ",
-                {{'N', "ew msg"}, {'R', "eply"}, {'F', "irst"}, {'L', "ast"},
+                {{'N', "ew msg"}, {'R', "ead"}, {'/', "Search"},
                  {'G', "o to #"}, {'C', "onf list"}, {'Q', "uit"}, {'?', ""}});
+
+            // Show filter indicator if active
+            if (isFiltered)
+            {
+                string filterMsg = " Filter: \"" + searchLabel + "\" (" +
+                    std::to_string(totalMsgs) + "/" +
+                    std::to_string(conf.messages.size()) + " msgs) ";
+                printAt(ROWS - 2, COLS - static_cast<int>(filterMsg.size()) - 1,
+                        filterMsg, tAttr(TC_YELLOW, TC_BLACK, true));
+            }
 
             needFullRedraw = false;
         }
@@ -417,7 +556,7 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
             case TK_ENTER:
                 if (totalMsgs > 0)
                 {
-                    selectedMsg = selected;
+                    selectedMsg = filteredIdx[selected];
                     return MsgListResult::ReadMessage;
                 }
                 break;
@@ -425,10 +564,48 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
             case 'R':
                 if (totalMsgs > 0)
                 {
-                    selectedMsg = selected;
+                    selectedMsg = filteredIdx[selected];
                     return MsgListResult::ReadMessage;
                 }
                 break;
+            case '/':
+            {
+                // Search / filter messages
+                MsgSearchParams searchParams;
+                bool clearSearch = false;
+                if (showMsgSearchDialog(searchParams, settings, clearSearch))
+                {
+                    auto results = filterMessages(conf.messages, searchParams);
+                    if (results.empty())
+                    {
+                        messageDialog("Search", "No messages found matching the search.");
+                    }
+                    else
+                    {
+                        filteredIdx = results;
+                        isFiltered = true;
+                        searchLabel = searchParams.searchText;
+                    }
+                }
+                else if (clearSearch)
+                {
+                    // Clear filter (still exclude vote responses)
+                    filteredIdx.clear();
+                    for (int i = 0; i < static_cast<int>(conf.messages.size()); ++i)
+                    {
+                        if (!conf.messages[i].isVoteResponse)
+                        {
+                            filteredIdx.push_back(i);
+                        }
+                    }
+                    isFiltered = false;
+                    searchLabel.clear();
+                }
+                selected = 0;
+                scrollOffset = 0;
+                needFullRedraw = true;
+                break;
+            }
             case 'n':
             case 'N':
                 return MsgListResult::NewMessage;
@@ -444,6 +621,24 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
                 return MsgListResult::OpenFile;
             case 'q':
             case 'Q':
+                if (isFiltered)
+                {
+                    // Clear the search filter (still exclude vote responses)
+                    filteredIdx.clear();
+                    for (int i = 0; i < static_cast<int>(conf.messages.size()); ++i)
+                    {
+                        if (!conf.messages[i].isVoteResponse)
+                        {
+                            filteredIdx.push_back(i);
+                        }
+                    }
+                    isFiltered = false;
+                    searchLabel.clear();
+                    selected = 0;
+                    scrollOffset = 0;
+                    needFullRedraw = true;
+                    break;
+                }
                 return MsgListResult::Back;
             case TK_CTRL_C:
                 return MsgListResult::Quit;

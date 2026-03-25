@@ -2,6 +2,7 @@
 #define SLYMAIL_QWK_H
 
 #include "terminal.h"
+#include "voting.h"
 #include <iostream>
 #include <optional>
 
@@ -24,9 +25,9 @@ enum class QwkStatus : char
 struct QwkMessage
 {
     int         number;         // Message number
-    std::string from;           // From name (25 chars max)
-    std::string to;             // To name (25 chars max)
-    std::string subject;        // Subject (25 chars max)
+    std::string from;           // From name (25 chars max, or extended)
+    std::string to;             // To name (25 chars max, or extended)
+    std::string subject;        // Subject (25 chars max, or extended)
     std::string date;           // Date string "MM-DD-YY"
     std::string time;           // Time string "HH:MM"
     std::string body;           // Message body text
@@ -35,9 +36,30 @@ struct QwkMessage
     QwkStatus   status;         // Message status
     bool        isPrivate;      // Is this a private message?
 
+    // QWKE extensions
+    long        msgOffset;      // Byte offset in MESSAGES.DAT (for HEADERS.DAT matching)
+    bool        utf8;           // Message body is UTF-8 encoded (from HEADERS.DAT)
+    std::string msgId;          // RFC822 Message-ID (from HEADERS.DAT, used for voting)
+
+    // File attachment support
+    bool        hasAttachment;  // Message has file attachment(s)
+    std::vector<std::string> attachmentFiles; // Attachment filenames
+
+    // Voting/poll support
+    bool        isPoll;         // Message is a poll (from VOTING.DAT)
+    bool        isVoteResponse; // Message is a vote/ballot response (should be hidden from list)
+    int         pollIndex;      // Index into VotingData.polls (-1 if not a poll)
+    uint32_t    upvotes;        // Tally of up-votes on this message
+    uint32_t    downvotes;      // Tally of down-votes on this message
+    uint16_t    userVoted;      // 0 = not voted, 1 = upvoted, 2 = downvoted, or bitmask for poll
+
     QwkMessage()
         : number(0), replyTo(0), conference(0),
-          status(QwkStatus::NewPublic), isPrivate(false)
+          status(QwkStatus::NewPublic), isPrivate(false),
+          msgOffset(0), utf8(false),
+          hasAttachment(false),
+          isPoll(false), isVoteResponse(false), pollIndex(-1),
+          upvotes(0), downvotes(0), userVoted(0)
     {
     }
 };
@@ -78,6 +100,7 @@ struct QwkPacket
     std::vector<QwkConference> conferences;
     std::string extractDir;     // Where the packet was extracted
     std::string sourceFile;     // Original .qwk file path
+    VotingData  voting;         // Voting/poll data from VOTING.DAT
 
     // Get total message count
     int totalMessages() const
@@ -120,6 +143,22 @@ struct QwkReply
     }
 };
 
+// A pending vote to be included in the REP packet's VOTING.DAT
+struct PendingVote
+{
+    std::string msgId;          // Message ID of the message/poll being voted on
+    std::string voter;          // Voter name (the user)
+    int         conference;     // Conference number
+    uint16_t    votes;          // Bitmask of selected poll answers (for polls)
+    bool        upVote;         // Up-vote (for regular messages)
+    bool        downVote;       // Down-vote (for regular messages)
+
+    PendingVote()
+        : conference(0), votes(0), upVote(false), downVote(false)
+    {
+    }
+};
+
 // Parse a QWK packet from a .qwk file
 // Returns a QwkPacket on success, or std::nullopt on failure
 std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath);
@@ -136,11 +175,12 @@ bool parseMessagesDat(const std::string& path,
 bool parseMessagesDat(const std::string& path,
                       std::vector<QwkConference>& conferences);
 
-// Create a REP packet from reply messages
+// Create a REP packet from reply messages and pending votes
 bool createRepPacket(const std::string& repFilePath,
                      const std::string& bbsID,
                      const std::string& userName,
-                     const std::vector<QwkReply>& replies);
+                     const std::vector<QwkReply>& replies,
+                     const std::vector<PendingVote>& pendingVotes = {});
 
 // Utility: trim whitespace from both ends of a string
 inline std::string trimStr(const std::string& s)

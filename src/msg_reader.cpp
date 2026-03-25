@@ -1,4 +1,6 @@
 #include "msg_reader.h"
+#include "bbs_colors.h"
+#include "utf8_util.h"
 
 using std::string;
 using std::vector;
@@ -72,6 +74,113 @@ TermAttr getLineAttr(const string& line, const Settings& settings)
     }
 
     return tAttr(TC_WHITE, TC_BLACK, false);
+}
+
+// Build Synchronet-style poll result display lines.
+// Each line is stored as plain text; the rendering function handles the
+// backfill color effect based on embedded markers.
+static vector<string> buildPollDisplayLines(const QwkMessage& msg,
+                                             const VotingData* votingData,
+                                             int displayWidth)
+{
+    vector<string> lines;
+
+    if (!votingData || msg.pollIndex < 0 ||
+        msg.pollIndex >= static_cast<int>(votingData->polls.size()))
+    {
+        lines.push_back("(Poll data not available)");
+        return lines;
+    }
+
+    const VotingPoll& poll = votingData->polls[msg.pollIndex];
+
+    // Poll question
+    lines.push_back(poll.question);
+    lines.push_back("");
+
+    // Comments
+    for (const auto& comment : poll.comments)
+    {
+        lines.push_back("  " + comment);
+    }
+    if (!poll.comments.empty())
+    {
+        lines.push_back("");
+    }
+
+    // Calculate total votes
+    int totalVotes = 0;
+    for (const auto& answer : poll.answers)
+    {
+        totalVotes += answer.votes;
+    }
+
+    // Find the longest answer text for alignment
+    int maxAnswerLen = 0;
+    for (const auto& answer : poll.answers)
+    {
+        int len = static_cast<int>(answer.text.size());
+        if (len > maxAnswerLen) maxAnswerLen = len;
+    }
+    // Cap the answer display width
+    int answerWidth = maxAnswerLen;
+    if (answerWidth > displayWidth - 20) answerWidth = displayWidth - 20;
+    if (answerWidth < 10) answerWidth = 10;
+
+    // Display each answer with vote count and percentage bar
+    for (size_t i = 0; i < poll.answers.size(); ++i)
+    {
+        const auto& answer = poll.answers[i];
+        float pct = (totalVotes > 0) ? (static_cast<float>(answer.votes) / totalVotes) * 100.0f : 0.0f;
+
+        // Format: " N: Answer text         [count  pct%] checkmark"
+        char numBuf[8];
+        snprintf(numBuf, sizeof(numBuf), "%2d", static_cast<int>(i + 1));
+
+        string ansText = answer.text;
+        if (static_cast<int>(ansText.size()) > answerWidth)
+        {
+            ansText = ansText.substr(0, answerWidth - 3) + "...";
+        }
+        // Pad answer to answerWidth
+        while (static_cast<int>(ansText.size()) < answerWidth)
+        {
+            ansText += ' ';
+        }
+
+        char statBuf[32];
+        snprintf(statBuf, sizeof(statBuf), " [%-4d %3.0f%%]", answer.votes, pct);
+
+        string checkMark;
+        if (msg.userVoted & (1 << i))
+        {
+            checkMark = " *"; // Indicates the user voted for this answer
+        }
+
+        // The line includes a special marker for the backfill renderer:
+        // \x01P<pct>\x01 at the start indicates this is a poll answer line
+        // with the given percentage for backfill coloring.
+        char pctMarker[16];
+        snprintf(pctMarker, sizeof(pctMarker), "\x01P%03d\x01", static_cast<int>(pct));
+        string fullLine = string(pctMarker) + string(numBuf) + ": " + ansText + statBuf + checkMark;
+
+        lines.push_back(fullLine);
+    }
+
+    lines.push_back("");
+    lines.push_back("Total votes: " + std::to_string(totalVotes));
+
+    if (poll.closed)
+    {
+        lines.push_back("[Poll is closed]");
+    }
+
+    if (poll.maxVotes > 1)
+    {
+        lines.push_back("(Up to " + std::to_string(poll.maxVotes) + " selections allowed)");
+    }
+
+    return lines;
 }
 
 // Filter and prepare message body lines
@@ -184,11 +293,25 @@ int drawMessageHeader(const QwkMessage& msg, const string& confName,
     printAt(y, 1, "Msg#: ", labelAttr);
     string msgNumStr = std::to_string(msgIndex + 1) + "/" + std::to_string(totalMsgs);
     printAt(y, 7, msgNumStr, valueAttr);
+    // Show indicators on the right side
+    int indicatorX = w - 2;
     if (msg.isPrivate)
     {
         string pvt = "[Private]";
-        printAt(y, w - static_cast<int>(pvt.size()) - 2, pvt,
-                tAttr(TC_RED, TC_BLACK, true));
+        indicatorX -= static_cast<int>(pvt.size());
+        printAt(y, indicatorX, pvt, tAttr(TC_RED, TC_BLACK, true));
+    }
+    if (msg.hasAttachment)
+    {
+        string att = "[ATT]";
+        indicatorX -= static_cast<int>(att.size()) + 1;
+        printAt(y, indicatorX, att, tAttr(TC_YELLOW, TC_BLACK, true));
+    }
+    if (msg.utf8)
+    {
+        string u8 = "[UTF8]";
+        indicatorX -= static_cast<int>(u8.size()) + 1;
+        printAt(y, indicatorX, u8, tAttr(TC_GREEN, TC_BLACK, false));
     }
     ++y;
 
@@ -222,7 +345,42 @@ int drawMessageHeader(const QwkMessage& msg, const string& confName,
     }
     ++y;
 
-    // Row 6: Bottom border
+    // Row 6 (optional): Vote tally or poll indicator
+    if (msg.isPoll || msg.upvotes > 0 || msg.downvotes > 0)
+    {
+        drawSideBorders(y);
+        if (msg.isPoll)
+        {
+            printAt(y, 1, "Poll: ", labelAttr);
+            string pollInfo = "Press V to vote";
+            if (msg.userVoted != 0)
+            {
+                pollInfo = "You have voted on this poll";
+            }
+            printAt(y, 7, pollInfo, tAttr(TC_YELLOW, TC_BLACK, true));
+        }
+        else
+        {
+            // Show upvote/downvote tally like Synchronet
+            printAt(y, 1, "Votes:", labelAttr);
+            string voteStr = " Up " + std::to_string(msg.upvotes);
+            if (msg.userVoted == 1)
+            {
+                voteStr += " *";
+            }
+            voteStr += "  Down " + std::to_string(msg.downvotes);
+            if (msg.userVoted == 2)
+            {
+                voteStr += " *";
+            }
+            int score = static_cast<int>(msg.upvotes) - static_cast<int>(msg.downvotes);
+            voteStr += "  (Score: " + std::to_string(score) + ")";
+            printAt(y, 7, voteStr, tAttr(TC_GREEN, TC_BLACK, false));
+        }
+        ++y;
+    }
+
+    // Bottom border
     g_term->setAttr(borderAttr);
     g_term->putCP437(y, 0, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
     g_term->drawHLine(y, 1, w - 2);
@@ -236,8 +394,8 @@ int drawMessageHeader(const QwkMessage& msg, const string& confName,
 void drawReaderHelpBar(int y)
 {
     drawDDHelpBar(y, "Up/Dn/<-/->/PgUp/PgDn, ",
-                  {{'F', "irst"}, {'L', "ast"}, {'R', "eply"},
-                   {'H', "dr"}, {'S', "ettings"}, {'C', "onf"}, {'Q', "uit"}, {'?', ""}});
+                  {{'F', "irst"}, {'L', "ast"}, {'R', "eply"}, {'V', "ote"},
+                   {'D', "wnld"}, {'H', "dr"}, {'S', "et"}, {'C', "onf"}, {'Q', "uit"}, {'?', ""}});
 }
 
 // Build a list of header information lines for display
@@ -429,16 +587,490 @@ void showHeaderInfo(const QwkMessage& msg, const string& confName,
     }
 }
 
+// Save attachments from a message
+void downloadAttachments(const QwkMessage& msg, const string& extractDir)
+{
+    if (!msg.hasAttachment || msg.attachmentFiles.empty())
+    {
+        messageDialog("Attachments", "No file attachments found.");
+        return;
+    }
+
+    // Show list of attachments and prompt for save location
+    int cols = g_term->getCols();
+    int rows = g_term->getRows();
+
+    int dlgH = static_cast<int>(msg.attachmentFiles.size()) + 6;
+    if (dlgH > rows - 4) dlgH = rows - 4;
+    int dlgW = cols - 10;
+    if (dlgW > 60) dlgW = 60;
+    int dlgY = (rows - dlgH) / 2;
+    int dlgX = (cols - dlgW) / 2;
+
+    TermAttr borderAttr = tAttr(TC_CYAN, TC_BLACK, true);
+    TermAttr textAttr = tAttr(TC_WHITE, TC_BLACK, true);
+    TermAttr fileAttr = tAttr(TC_GREEN, TC_BLACK, false);
+    TermAttr helpAttr = tAttr(TC_CYAN, TC_BLACK, false);
+
+    // Clear dialog area
+    for (int r = 0; r < dlgH; ++r)
+    {
+        fillRow(dlgY + r, tAttr(TC_WHITE, TC_BLACK, false), dlgX, dlgX + dlgW);
+    }
+    drawBox(dlgY, dlgX, dlgH, dlgW, borderAttr, "File Attachments", borderAttr);
+
+    printAt(dlgY + 1, dlgX + 2, "Attached files:", textAttr);
+
+    int fileRow = dlgY + 2;
+    for (size_t i = 0; i < msg.attachmentFiles.size() && fileRow < dlgY + dlgH - 3; ++i)
+    {
+        string fname = msg.attachmentFiles[i];
+        // Show file size if file exists
+        string filePath = extractDir + PATH_SEP_STR + fname;
+        string sizeStr;
+        if (fs::exists(filePath))
+        {
+            auto sz = fs::file_size(filePath);
+            if (sz >= 1048576)
+                sizeStr = " (" + std::to_string(sz / 1048576) + " MB)";
+            else if (sz >= 1024)
+                sizeStr = " (" + std::to_string(sz / 1024) + " KB)";
+            else
+                sizeStr = " (" + std::to_string(sz) + " bytes)";
+        }
+        printAt(fileRow, dlgX + 4, fname + sizeStr, fileAttr);
+        ++fileRow;
+    }
+
+    printAt(dlgY + dlgH - 2, dlgX + 2, "Save to directory (Enter for home):", helpAttr);
+
+    // Get destination directory
+    string homeDir = ".";
+    const char* home = getenv("HOME");
+    if (home) homeDir = home;
+#ifdef _WIN32
+    const char* userProfile = getenv("USERPROFILE");
+    if (userProfile) homeDir = userProfile;
+#endif
+
+    string destDir = getStringInput(dlgY + dlgH - 1, dlgX + 2, dlgW - 4, homeDir,
+                                     tAttr(TC_WHITE, TC_BLACK, true));
+
+    if (destDir.empty())
+    {
+        return; // Cancelled
+    }
+
+    // Copy files
+    int copied = 0;
+    for (const auto& fname : msg.attachmentFiles)
+    {
+        string srcPath = extractDir + PATH_SEP_STR + fname;
+        string dstPath = destDir + PATH_SEP_STR + fname;
+
+        if (fs::exists(srcPath))
+        {
+            try
+            {
+                fs::copy_file(srcPath, dstPath, fs::copy_options::overwrite_existing);
+                ++copied;
+            }
+            catch (...)
+            {
+                // Silently skip files that can't be copied
+            }
+        }
+    }
+
+    if (copied > 0)
+    {
+        messageDialog("Download", std::to_string(copied) + " file(s) saved to " + destDir);
+    }
+    else
+    {
+        messageDialog("Download", "No files could be saved. Files may not exist in packet.");
+    }
+}
+
+// ============================================================
+// Voting UI
+// ============================================================
+
+// Show up/down vote prompt for a regular (non-poll) message.
+// Modeled on Synchronet's VoteMsgUpDownOrQuit prompt.
+static bool showUpDownVoteUI(const QwkMessage& msg, const string& userName,
+                              PendingVote& voteOut)
+{
+    int rows = g_term->getRows();
+    int y = rows - 1;
+
+    TermAttr promptAttr = tAttr(TC_CYAN, TC_BLACK, true);
+    TermAttr keyAttr = tAttr(TC_WHITE, TC_BLACK, true);
+
+    // Show vote tally if any
+    if (msg.upvotes > 0 || msg.downvotes > 0)
+    {
+        fillRow(y - 1, tAttr(TC_BLACK, TC_BLACK, false));
+        string tally = "Current: Up " + std::to_string(msg.upvotes)
+                     + ", Down " + std::to_string(msg.downvotes)
+                     + " (Score: " + std::to_string(static_cast<int>(msg.upvotes) - static_cast<int>(msg.downvotes)) + ")";
+        if (msg.userVoted == 1)
+        {
+            tally += " [You voted Up]";
+        }
+        else if (msg.userVoted == 2)
+        {
+            tally += " [You voted Down]";
+        }
+        printAt(y - 1, 1, tally, tAttr(TC_GREEN, TC_BLACK, false));
+    }
+
+    fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
+    printAt(y, 1, "Vote for message: ", promptAttr);
+    int x = 19;
+    printAt(y, x, "U", keyAttr);
+    printAt(y, x + 1, "p, ", promptAttr);
+    x += 4;
+    printAt(y, x, "D", keyAttr);
+    printAt(y, x + 1, "own, or ", promptAttr);
+    x += 9;
+    printAt(y, x, "Q", keyAttr);
+    printAt(y, x + 1, "uit: ", promptAttr);
+
+    g_term->refresh();
+
+    while (true)
+    {
+        int ch = g_term->getKey();
+        if (ch == 'u' || ch == 'U')
+        {
+            voteOut.msgId = msg.msgId;
+            voteOut.voter = userName;
+            voteOut.conference = msg.conference;
+            voteOut.upVote = true;
+            voteOut.downVote = false;
+            voteOut.votes = 0;
+            return true;
+        }
+        else if (ch == 'd' || ch == 'D')
+        {
+            voteOut.msgId = msg.msgId;
+            voteOut.voter = userName;
+            voteOut.conference = msg.conference;
+            voteOut.upVote = false;
+            voteOut.downVote = true;
+            voteOut.votes = 0;
+            return true;
+        }
+        else if (ch == 'q' || ch == 'Q' || ch == TK_ESCAPE)
+        {
+            return false;
+        }
+    }
+}
+
+// Show poll ballot UI. Lets user toggle answer selections and cast vote.
+// Modeled on Synchronet's mselect() ballot interface.
+static bool showPollBallotUI(const QwkMessage& msg, const VotingData* votingData,
+                              const string& userName, PendingVote& voteOut)
+{
+    if (!votingData || msg.pollIndex < 0 ||
+        msg.pollIndex >= static_cast<int>(votingData->polls.size()))
+    {
+        messageDialog("Vote", "No poll data available for this message.");
+        return false;
+    }
+
+    const VotingPoll& poll = votingData->polls[msg.pollIndex];
+
+    if (poll.closed)
+    {
+        messageDialog("Vote", "This poll is closed.");
+        return false;
+    }
+
+    if (poll.answers.empty())
+    {
+        messageDialog("Vote", "This poll has no answer options.");
+        return false;
+    }
+
+    int cols = g_term->getCols();
+    int rows = g_term->getRows();
+    int maxVotes = (poll.maxVotes > 0) ? poll.maxVotes : 1;
+
+    // Selections bitmask (toggle-able)
+    uint16_t selections = 0;
+    int selected = 0; // Currently highlighted answer
+    int numAnswers = static_cast<int>(poll.answers.size());
+
+    // Dialog sizing
+    int dlgW = cols - 8;
+    if (dlgW > 70) dlgW = 70;
+    int dlgH = numAnswers + 8;
+    if (dlgH > rows - 4) dlgH = rows - 4;
+    int dlgX = (cols - dlgW) / 2;
+    int dlgY = (rows - dlgH) / 2;
+
+    TermAttr borderAttr = tAttr(TC_CYAN, TC_BLACK, true);
+    TermAttr titleAttr = tAttr(TC_WHITE, TC_BLACK, true);
+    TermAttr normalAttr = tAttr(TC_CYAN, TC_BLACK, false);
+    TermAttr selectedAttr = tAttr(TC_WHITE, TC_BLUE, true);
+    TermAttr checkedAttr = tAttr(TC_GREEN, TC_BLACK, true);
+    TermAttr helpAttr = tAttr(TC_GREEN, TC_BLACK, false);
+    TermAttr infoAttr = tAttr(TC_YELLOW, TC_BLACK, false);
+
+    while (true)
+    {
+        // Count current selections
+        int numSelected = 0;
+        for (int i = 0; i < numAnswers && i < 16; ++i)
+        {
+            if (selections & (1 << i))
+            {
+                ++numSelected;
+            }
+        }
+
+        // Draw dialog
+        for (int r = 0; r < dlgH; ++r)
+        {
+            fillRow(dlgY + r, tAttr(TC_BLACK, TC_BLACK, false), dlgX, dlgX + dlgW);
+        }
+        drawBox(dlgY, dlgX, dlgH, dlgW, borderAttr, "Ballot", borderAttr);
+
+        // Poll question
+        string questionStr = poll.question;
+        if (static_cast<int>(questionStr.size()) > dlgW - 4)
+        {
+            questionStr = questionStr.substr(0, dlgW - 7) + "...";
+        }
+        printAt(dlgY + 1, dlgX + 2, questionStr, titleAttr);
+
+        // Comments (if any, show first line)
+        if (!poll.comments.empty())
+        {
+            string comment = poll.comments[0];
+            if (static_cast<int>(comment.size()) > dlgW - 4)
+            {
+                comment = comment.substr(0, dlgW - 7) + "...";
+            }
+            printAt(dlgY + 2, dlgX + 2, comment, infoAttr);
+        }
+
+        // Answers
+        int answerTop = dlgY + 3;
+        int maxVisible = dlgH - 6;
+        int scrollOff = 0;
+        if (selected >= maxVisible)
+        {
+            scrollOff = selected - maxVisible + 1;
+        }
+
+        for (int i = 0; i < maxVisible && (i + scrollOff) < numAnswers; ++i)
+        {
+            int ansIdx = i + scrollOff;
+            int y = answerTop + i;
+            bool isChecked = (selections & (1 << ansIdx)) != 0;
+            bool isSel = (ansIdx == selected);
+
+            string checkMark = isChecked ? "[*] " : "[ ] ";
+            string numStr = std::to_string(ansIdx + 1) + ". ";
+            string ansText = poll.answers[ansIdx].text;
+
+            int maxAnsLen = dlgW - 12;
+            if (static_cast<int>(ansText.size()) > maxAnsLen)
+            {
+                ansText = ansText.substr(0, maxAnsLen - 3) + "...";
+            }
+
+            string fullLine = checkMark + numStr + ansText;
+            // Pad to fill width
+            if (static_cast<int>(fullLine.size()) < dlgW - 4)
+            {
+                fullLine += string(dlgW - 4 - fullLine.size(), ' ');
+            }
+
+            TermAttr lineAttr;
+            if (isSel)
+            {
+                lineAttr = selectedAttr;
+            }
+            else if (isChecked)
+            {
+                lineAttr = checkedAttr;
+            }
+            else
+            {
+                lineAttr = normalAttr;
+            }
+
+            printAt(y, dlgX + 2, fullLine, lineAttr);
+        }
+
+        // Vote count and help info
+        int bottomY = dlgY + dlgH - 2;
+        string selectInfo = "Selected: " + std::to_string(numSelected) + "/" + std::to_string(maxVotes);
+        printAt(bottomY, dlgX + 2, selectInfo, infoAttr);
+
+        string helpStr = "Up/Dn=Move, Space/Enter=Toggle, C=Cast vote, Q=Quit";
+        if (static_cast<int>(helpStr.size()) > dlgW - 4)
+        {
+            helpStr = helpStr.substr(0, dlgW - 4);
+        }
+        printAt(bottomY, dlgX + dlgW - static_cast<int>(helpStr.size()) - 2, helpStr, helpAttr);
+
+        g_term->refresh();
+
+        int ch = g_term->getKey();
+        switch (ch)
+        {
+            case TK_UP:
+                if (selected > 0)
+                {
+                    --selected;
+                }
+                break;
+            case TK_DOWN:
+                if (selected < numAnswers - 1)
+                {
+                    ++selected;
+                }
+                break;
+            case TK_PGUP:
+                selected -= maxVisible;
+                if (selected < 0) selected = 0;
+                break;
+            case TK_PGDN:
+                selected += maxVisible;
+                if (selected >= numAnswers) selected = numAnswers - 1;
+                break;
+            case ' ':
+            case TK_ENTER:
+            {
+                // Toggle selection
+                uint16_t bit = static_cast<uint16_t>(1 << selected);
+                if (selections & bit)
+                {
+                    // Deselect
+                    selections &= ~bit;
+                }
+                else
+                {
+                    // Check if we'd exceed maxVotes
+                    if (numSelected < maxVotes)
+                    {
+                        selections |= bit;
+                    }
+                    else if (maxVotes == 1)
+                    {
+                        // Single-select: clear all and select this one
+                        selections = bit;
+                    }
+                    // else: at limit, don't add more
+                }
+                break;
+            }
+            case 'c': case 'C':
+            {
+                // Cast vote
+                if (selections == 0)
+                {
+                    messageDialog("Vote", "No answers selected. Select at least one.");
+                    break;
+                }
+                voteOut.msgId = msg.msgId;
+                voteOut.voter = userName;
+                voteOut.conference = msg.conference;
+                voteOut.votes = selections;
+                voteOut.upVote = false;
+                voteOut.downVote = false;
+                return true;
+            }
+            case 'q': case 'Q': case TK_ESCAPE:
+                return false;
+            default:
+                // Number keys 1-9 for quick selection
+                if (ch >= '1' && ch <= '9')
+                {
+                    int idx = ch - '1';
+                    if (idx < numAnswers)
+                    {
+                        selected = idx;
+                        // Toggle
+                        uint16_t bit = static_cast<uint16_t>(1 << idx);
+                        if (selections & bit)
+                        {
+                            selections &= ~bit;
+                        }
+                        else
+                        {
+                            if (numSelected < maxVotes)
+                            {
+                                selections |= bit;
+                            }
+                            else if (maxVotes == 1)
+                            {
+                                selections = bit;
+                            }
+                        }
+                    }
+                }
+                break;
+        }
+    }
+}
+
+// Main vote UI dispatcher
+bool showVoteUI(const QwkMessage& msg, const VotingData* votingData,
+                const string& userName, PendingVote& voteOut)
+{
+    if (msg.msgId.empty())
+    {
+        messageDialog("Vote", "This message has no Message-ID. Voting requires QWKE headers.");
+        return false;
+    }
+
+    if (msg.isPoll)
+    {
+        return showPollBallotUI(msg, votingData, userName, voteOut);
+    }
+    else
+    {
+        return showUpDownVoteUI(msg, userName, voteOut);
+    }
+}
+
 // Show a message in the enhanced reader (DDMsgReader-style scrollable)
 MsgReadResult showMessageReader(const QwkMessage& msg,
                                 const string& confName,
                                 int msgIndex, int totalMsgs,
-                                Settings& settings)
+                                Settings& settings,
+                                const string& extractDir,
+                                const VotingData* votingData,
+                                PendingVote* lastVote)
 {
     int displayWidth = settings.useScrollbar ? g_term->getCols() - 2 : g_term->getCols() - 1;
-    auto bodyLines = prepareBodyLines(msg, settings, displayWidth);
+    // For poll messages, show Synchronet-style poll results instead of body text
+    vector<string> bodyLines;
+    if (msg.isPoll && votingData)
+    {
+        bodyLines = buildPollDisplayLines(msg, votingData, displayWidth);
+    }
+    else
+    {
+        bodyLines = prepareBodyLines(msg, settings, displayWidth);
+    }
     int totalLines = static_cast<int>(bodyLines.size());
     int scrollPos = 0;
+
+    // Build attribute code flags from settings
+    AttrCodeFlags attrFlags;
+    attrFlags.synchronet = settings.attrSynchronet;
+    attrFlags.wwiv = settings.attrWWIV;
+    attrFlags.celerity = settings.attrCelerity;
+    attrFlags.renegade = settings.attrRenegade;
+    attrFlags.pcboard = settings.attrPCBoard;
 
     while (true)
     {
@@ -457,8 +1089,75 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
             int lineIdx = scrollPos + i;
             const auto& line = bodyLines[lineIdx];
             int row = bodyTop + i;
-            TermAttr lineAttr = getLineAttr(line, settings);
-            printAt(row, 0, padStr(line, displayWidth), lineAttr);
+
+            // Check for poll answer backfill marker: \x01P<pct>\x01
+            if (line.size() > 6 && line[0] == '\x01' && line[1] == 'P' && line[5] == '\x01')
+            {
+                // Extract percentage and the display text
+                int pct = 0;
+                try { pct = std::stoi(line.substr(2, 3)); } catch (...) {}
+                string displayText = line.substr(6);
+                if (static_cast<int>(displayText.size()) > displayWidth)
+                {
+                    displayText = displayText.substr(0, displayWidth);
+                }
+
+                // Render with Synchronet-style backfill: the portion of the
+                // text covered by the percentage is drawn in a "full" color,
+                // the remainder in an "empty" color.
+                TermAttr fullAttr = tAttr(TC_WHITE, TC_BLUE, true);   // Bright white on blue
+                TermAttr emptyAttr = tAttr(TC_CYAN, TC_BLACK, false); // Dim cyan on black
+
+                int textLen = static_cast<int>(displayText.size());
+                int fillLen = (textLen > 0) ? (pct * textLen / 100) : 0;
+
+                for (int c = 0; c < textLen && c < displayWidth; ++c)
+                {
+                    g_term->setAttr(c < fillLen ? fullAttr : emptyAttr);
+                    g_term->putCh(row, c, displayText[c]);
+                }
+                // Pad remaining with spaces
+                if (textLen < displayWidth)
+                {
+                    g_term->setAttr(emptyAttr);
+                    g_term->fillRegion(row, textLen, displayWidth, ' ');
+                }
+            }
+            else
+            {
+                TermAttr lineAttr = getLineAttr(line, settings);
+
+                if (!settings.stripAnsi)
+                {
+                    // Parse BBS color codes and render segment by segment
+                    TermAttr attr = lineAttr;
+                    auto segments = parseBBSColors(line, attr, attrFlags);
+                    int x = 0;
+                    for (const auto& seg : segments)
+                    {
+                        if (x >= displayWidth) break;
+                        string text = seg.text;
+                        if (x + static_cast<int>(text.size()) > displayWidth)
+                        {
+                            text = text.substr(0, displayWidth - x);
+                        }
+                        printAt(row, x, text, seg.attr);
+                        x += static_cast<int>(text.size());
+                    }
+                    // Pad remaining with spaces
+                    if (x < displayWidth)
+                    {
+                        g_term->setAttr(lineAttr);
+                        g_term->fillRegion(row, x, displayWidth, ' ');
+                    }
+                }
+                else
+                {
+                    // Strip all color codes and display plain
+                    string plainLine = stripBBSColors(line, attrFlags);
+                    printAt(row, 0, padStr(plainLine, displayWidth), lineAttr);
+                }
+            }
         }
 
         // Scrollbar
@@ -523,10 +1222,36 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
                 return MsgReadResult::FirstMsg;
             case 'l': case 'L':
                 return MsgReadResult::LastMsg;
+            case 'd': case 'D': case TK_CTRL_D:
+                // Download file attachments
+                if (msg.hasAttachment)
+                {
+                    downloadAttachments(msg, extractDir);
+                }
+                else
+                {
+                    messageDialog("Attachments", "This message has no file attachments.");
+                }
+                break;
+            case 'v': case 'V':
+            {
+                // Vote on this message (up/down or poll ballot)
+                PendingVote vote;
+                if (showVoteUI(msg, votingData, settings.userName, vote))
+                {
+                    if (lastVote)
+                    {
+                        *lastVote = vote;
+                    }
+                    return MsgReadResult::Vote;
+                }
+                break;
+            }
             case 's': case 'S':
             case TK_CTRL_U:
                 return MsgReadResult::Settings;
             case 'q': case 'Q':
+            case 'm': case 'M':
             case 'c': case 'C': case TK_ESCAPE:
                 return MsgReadResult::Back;
             case TK_CTRL_C:
@@ -559,6 +1284,8 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
                 helpLine("F", "First message in conference");
                 helpLine("L", "Last message in conference");
                 helpLine("R", "Reply to the message");
+                helpLine("V", "Vote (up/down or poll ballot)");
+                helpLine("D / Ctrl-D", "Download file attachments");
                 helpLine("H", "Show message header information");
                 helpLine("C", "Back to conference list");
                 helpLine("Ctrl-U", "Change your user settings");

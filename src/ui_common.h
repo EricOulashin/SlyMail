@@ -57,6 +57,12 @@ std::string getStringInput(int y, int x, int maxLen,
                            const std::string& initial,
                            const TermAttr& attr);
 
+// Like getStringInput, but displays '*' characters instead of the actual text.
+// Returns the actual (unmasked) text, or empty string if cancelled.
+std::string getPasswordInput(int y, int x, int maxLen,
+                             const std::string& initial,
+                             const TermAttr& attr);
+
 // ---- Dialogs ----
 
 bool confirmDialog(const std::string& prompt);

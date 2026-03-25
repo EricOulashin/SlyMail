@@ -103,38 +103,106 @@ void drawBox(int y, int x, int h, int w, const TermAttr& attr,
 void drawDDHelpBar(int y, const string& prefix,
                    const vector<pair<char, string>>& items)
 {
-    TermAttr greenAttr = tAttr(TC_GREEN, TC_BLACK, false);
-    TermAttr redAttr   = tAttr(TC_RED, TC_BLACK, true);
+    // Background: grey (white non-bright)
+    // Hotkey letters: normal red on white bg
+    // Slashes, commas, regular text: normal blue on white bg
+    // ')' characters: normal magenta on white bg
+    int bg = TC_WHITE; // White background = grey
+    TermAttr keyAttr  = tAttr(TC_RED, bg, false);
+    TermAttr textAttr = tAttr(TC_BLUE, bg, false);
+    TermAttr parenAttr = tAttr(TC_MAGENTA, bg, false);
+    TermAttr bgAttr   = tAttr(TC_BLUE, bg, false);
 
-    fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
+    // Fill entire row with the background color
+    fillRow(y, bgAttr);
 
-    int x = 0;
-    if (!prefix.empty())
-    {
-        printAt(y, x, prefix, greenAttr);
-        x += static_cast<int>(prefix.size());
-    }
-
+    // First pass: calculate total width of content
+    int totalWidth = static_cast<int>(prefix.size());
     for (size_t i = 0; i < items.size(); ++i)
     {
-        if (x + static_cast<int>(items[i].second.size()) + 3 > g_term->getCols())
+        totalWidth += 1; // hotkey character
+        if (!items[i].second.empty())
+        {
+            totalWidth += 1; // ')' only when there is description text
+            totalWidth += static_cast<int>(items[i].second.size());
+        }
+        if (i + 1 < items.size())
+        {
+            totalWidth += 2; // ", "
+        }
+    }
+
+    // Center horizontally
+    int x = (g_term->getCols() - totalWidth) / 2;
+    if (x < 0)
+    {
+        x = 0;
+    }
+
+    // Render the prefix character by character with appropriate colors
+    for (size_t ci = 0; ci < prefix.size(); ++ci)
+    {
+        char c = prefix[ci];
+        if (c == '/' || c == ',' || c == ' ' || c == '-' || c == '<' || c == '>')
+        {
+            g_term->setAttr(textAttr);
+        }
+        else
+        {
+            // Letters in the prefix (like "Up", "Dn", "PgUp") are hotkey-colored
+            g_term->setAttr(keyAttr);
+        }
+        g_term->putCh(y, x, c);
+        ++x;
+    }
+
+    // Render each item
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        if (x >= g_term->getCols())
         {
             break;
         }
 
-        // Red hotkey letter
-        g_term->setAttr(redAttr);
+        // Hotkey letter (red)
+        g_term->setAttr(keyAttr);
         g_term->putCh(y, x, items[i].first);
         ++x;
 
-        // Green ")description"
-        string desc = ")" + items[i].second;
+        // ')' and description text — only if description is non-empty
+        const string& desc = items[i].second;
+        if (!desc.empty())
+        {
+            // ')' in magenta
+            g_term->setAttr(parenAttr);
+            g_term->putCh(y, x, ')');
+            ++x;
+
+            // Description text (blue)
+            for (size_t ci = 0; ci < desc.size(); ++ci)
+            {
+                if (x >= g_term->getCols()) break;
+                g_term->setAttr(textAttr);
+                g_term->putCh(y, x, desc[ci]);
+                ++x;
+            }
+        }
+
+        // Separator ", " (blue) between items
         if (i + 1 < items.size())
         {
-            desc += ", ";
+            if (x < g_term->getCols())
+            {
+                g_term->setAttr(textAttr);
+                g_term->putCh(y, x, ',');
+                ++x;
+            }
+            if (x < g_term->getCols())
+            {
+                g_term->putCh(y, x, ' ');
+                ++x;
+            }
         }
-        printAt(y, x, desc, greenAttr);
-        x += static_cast<int>(desc.size());
     }
 }
 
@@ -219,6 +287,81 @@ string getStringInput(int y, int x, int maxLen,
     {
         g_term->setAttr(attr);
         string display = padStr(result, maxLen);
+        g_term->printStr(y, x, display);
+        g_term->moveTo(y, x + cursorPos);
+        g_term->refresh();
+
+        int ch = g_term->getKey();
+        if (ch == TK_ENTER)
+        {
+            break;
+        }
+        else if (ch == TK_ESCAPE || ch == TK_CTRL_A || ch == TK_CTRL_C)
+        {
+            g_term->setCursorVisible(false);
+            return "";
+        }
+        else if (ch == TK_BACKSPACE || ch == TK_BACKSPACE_8)
+        {
+            if (cursorPos > 0)
+            {
+                result.erase(cursorPos - 1, 1);
+                --cursorPos;
+            }
+        }
+        else if (ch == TK_DELETE)
+        {
+            if (cursorPos < static_cast<int>(result.size()))
+            {
+                result.erase(cursorPos, 1);
+            }
+        }
+        else if (ch == TK_LEFT)
+        {
+            if (cursorPos > 0)
+            {
+                --cursorPos;
+            }
+        }
+        else if (ch == TK_RIGHT)
+        {
+            if (cursorPos < static_cast<int>(result.size()))
+            {
+                ++cursorPos;
+            }
+        }
+        else if (ch == TK_HOME)
+        {
+            cursorPos = 0;
+        }
+        else if (ch == TK_END)
+        {
+            cursorPos = static_cast<int>(result.size());
+        }
+        else if (ch >= 32 && ch < 127 && static_cast<int>(result.size()) < maxLen)
+        {
+            result.insert(cursorPos, 1, static_cast<char>(ch));
+            ++cursorPos;
+        }
+    }
+    g_term->setCursorVisible(false);
+    return result;
+}
+
+string getPasswordInput(int y, int x, int maxLen,
+                        const string& initial,
+                        const TermAttr& attr)
+{
+    string result = initial;
+    int cursorPos = static_cast<int>(result.size());
+
+    g_term->setCursorVisible(true);
+    for (;;)
+    {
+        g_term->setAttr(attr);
+        // Display masked version: '*' for each character, padded with spaces
+        string masked(result.size(), '*');
+        string display = padStr(masked, maxLen);
         g_term->printStr(y, x, display);
         g_term->moveTo(y, x + cursorPos);
         g_term->refresh();

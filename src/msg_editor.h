@@ -8,6 +8,7 @@
 #include "qwk.h"
 #include "settings.h"
 #include "settings_dialog.h"
+#include "bbs_colors.h"
 #include <chrono>
 
 enum class EditorResult
@@ -58,6 +59,13 @@ public:
 
     IceTheme iceTheme;
     DctTheme dctTheme;
+    AttrCodeFlags attrFlags;  // Attribute code toggle flags (from settings)
+
+    // Last-selected color in the Ctrl-K color picker (persists across calls)
+    int lastPickFg;
+    int lastPickBg;
+    bool lastPickBright;
+    int lastPickSection;  // 0=foreground, 1=background, 2=attributes
 
     // Pre-generated border color patterns (generated once per mode change)
     // Each vector stores per-character color choice (0 or 1) for a border line
@@ -97,6 +105,7 @@ public:
     void insertGraphicChar();
     void showGraphicCharList();
     void showCommandKeyHelp();
+    void pickColor();
     EditorResult run(Settings& settings, const std::string& baseDir = "");
     std::string getBody() const;
 };

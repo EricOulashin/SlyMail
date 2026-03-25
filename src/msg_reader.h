@@ -6,6 +6,7 @@
 #include "ui_common.h"
 #include "qwk.h"
 #include "settings.h"
+#include "bbs_colors.h"
 
 // Result from the message reader
 enum class MsgReadResult
@@ -18,6 +19,7 @@ enum class MsgReadResult
     FirstMsg,
     LastMsg,
     Settings,
+    Vote,       // User cast a vote (check lastVote for details)
 };
 
 // Determine color for a message body line
@@ -46,9 +48,24 @@ void showHeaderInfo(const QwkMessage& msg, const std::string& confName,
                     int msgIndex, int totalMsgs, const Settings& settings);
 
 // Show a message in the enhanced reader (DDMsgReader-style scrollable)
+// extractDir is the packet extract directory (for attachment downloads)
+// votingData is the packet's voting data (for poll display)
+// lastVote is set if the user casts a vote (caller should queue it)
 MsgReadResult showMessageReader(const QwkMessage& msg,
                                 const std::string& confName,
                                 int msgIndex, int totalMsgs,
-                                Settings& settings);
+                                Settings& settings,
+                                const std::string& extractDir = "",
+                                const VotingData* votingData = nullptr,
+                                PendingVote* lastVote = nullptr);
+
+// Save file attachments from a message to a destination directory
+void downloadAttachments(const QwkMessage& msg, const std::string& extractDir);
+
+// Show the voting UI for a message. Returns true if user cast a vote.
+// For polls: shows answer list and lets user toggle selections.
+// For regular messages: prompts for Up, Down, or Quit.
+bool showVoteUI(const QwkMessage& msg, const VotingData* votingData,
+                const std::string& userName, PendingVote& voteOut);
 
 #endif // SLYMAIL_MSG_READER_H

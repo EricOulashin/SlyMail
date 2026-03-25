@@ -1,21 +1,21 @@
 // SlyMail Configuration Program
 // Standalone utility to configure SlyMail settings outside of the main application.
 // Uses the same terminal abstraction (ITerminal) for cross-platform ncurses/conio support.
-// Settings are saved to slymail.ini in the same directory as the executable.
+// Settings are saved to slymail.ini in the SlyMail data directory (~/.slymail).
 
 #include "terminal.h"
 #include "colors.h"
 #include "ui_common.h"
 #include "settings.h"
 #include "settings_dialog.h"
+#include "remote_systems.h"
+#include "program_info.h"
 
 #include <ctime>
 
 using std::string;
 using std::vector;
 
-// Version
-static const char* CONFIG_VERSION = "1.0";
 
 // ============================================================
 // Configuration menu categories
@@ -47,7 +47,7 @@ static void drawHeader()
     // Top bar
     g_term->setAttr(tAttr(TC_WHITE, TC_BLUE, true));
     g_term->fillRegion(0, 0, cols, ' ');
-    string title = "SlyMail Configuration v" + string(CONFIG_VERSION);
+    string title = string(CONFIG_PROGRAM_NAME) + " v" + string(PROGRAM_VERSION);
     g_term->printStr(0, (cols - static_cast<int>(title.size())) / 2, title);
 
     // Separator
@@ -92,12 +92,15 @@ static bool editReaderSettings(Settings& settings)
         {"Show kludge/control lines (@MSGID, @REPLY, etc.)", &settings.showKludgeLines},
         {"Show tear lines and origin lines",                  &settings.showTearLine},
         {"Show scrollbar in message reader",                  &settings.useScrollbar},
-        {"Strip ANSI escape codes from messages",             &settings.stripAnsi},
+        {"Strip ANSI codes from messages",                    &settings.stripAnsi},
         {"Use lightbar navigation in message list",           &settings.lightbarMode},
         {"Show messages in reverse order (newest first)",      &settings.reverseOrder},
     };
 
-    int itemCount = static_cast<int>(items.size());
+    // Total rows = bool items + 1 extra row for "Attribute code toggles..."
+    int boolItemCount = static_cast<int>(items.size());
+    int itemCount = boolItemCount + 1;  // +1 for sub-menu
+    int attrToggleIdx = boolItemCount;  // Last item is the sub-menu
     int selected = 0;
     bool changed = false;
 
@@ -160,20 +163,29 @@ static bool editReaderSettings(Settings& settings)
             }
 
             TermAttr lbl = isSel ? selAttr : itemAttr;
-            printAt(y, dlgX + 2, truncateStr(items[i].label, 50), lbl);
 
-            // Checkbox
-            TermAttr chk = isSel ? selAttr : checkAttr;
-            if (*(items[i].value))
+            if (i < boolItemCount)
             {
-                printAt(y, checkCol, "[", chk);
-                g_term->setAttr(chk);
-                g_term->putCP437(y, checkCol + 1, CP437_CHECK_MARK);
-                printAt(y, checkCol + 2, "]", chk);
+                printAt(y, dlgX + 2, truncateStr(items[i].label, 50), lbl);
+
+                // Checkbox
+                TermAttr chk = isSel ? selAttr : checkAttr;
+                if (*(items[i].value))
+                {
+                    printAt(y, checkCol, "[", chk);
+                    g_term->setAttr(chk);
+                    g_term->putCP437(y, checkCol + 1, CP437_CHECK_MARK);
+                    printAt(y, checkCol + 2, "]", chk);
+                }
+                else
+                {
+                    printAt(y, checkCol, "[ ]", chk);
+                }
             }
             else
             {
-                printAt(y, checkCol, "[ ]", chk);
+                // Sub-menu item: "Attribute code toggles..."
+                printAt(y, dlgX + 2, "Attribute code toggles...", lbl);
             }
         }
 
@@ -217,8 +229,19 @@ static bool editReaderSettings(Settings& settings)
                 break;
             case TK_ENTER:
             case ' ':
-                *(items[selected].value) = !*(items[selected].value);
-                changed = true;
+                if (selected == attrToggleIdx)
+                {
+                    // Open attribute code toggles sub-dialog
+                    if (showAttrCodeToggles(settings))
+                    {
+                        changed = true;
+                    }
+                }
+                else
+                {
+                    *(items[selected].value) = !*(items[selected].value);
+                    changed = true;
+                }
                 break;
             case TK_ESCAPE:
             case 'q':
@@ -542,7 +565,9 @@ static bool editGeneralSettings(Settings& settings)
         {"Reply packet directory",  &settings.replyDir, 60},
     };
 
-    int itemCount = static_cast<int>(items.size());
+    int strItemCount = static_cast<int>(items.size());
+    int itemCount = strItemCount + 1; // +1 for splash screen toggle
+    int splashIdx = strItemCount;
     int selected = 0;
     bool changed = false;
 
@@ -596,10 +621,32 @@ static bool editGeneralSettings(Settings& settings)
                 fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
             }
 
-            string display = items[i].label + ": " +
-                (items[i].value->empty() ? "(not set)" : *(items[i].value));
-            printAt(y, dlgX + 2, truncateStr(display, dlgW - 4),
-                    isSel ? selAttr : itemAttr);
+            if (i < strItemCount)
+            {
+                string display = items[i].label + ": " +
+                    (items[i].value->empty() ? "(not set)" : *(items[i].value));
+                printAt(y, dlgX + 2, truncateStr(display, dlgW - 4),
+                        isSel ? selAttr : itemAttr);
+            }
+            else
+            {
+                // Splash screen toggle
+                TermAttr lbl = isSel ? selAttr : itemAttr;
+                printAt(y, dlgX + 2, "Show splash screen on startup", lbl);
+                TermAttr chk = isSel ? selAttr : tAttr(TC_GREEN, TC_BLACK, true);
+                int checkCol = dlgX + dlgW - 8;
+                if (settings.showSplashScreen)
+                {
+                    printAt(y, checkCol, "[", chk);
+                    g_term->setAttr(chk);
+                    g_term->putCP437(y, checkCol + 1, CP437_CHECK_MARK);
+                    printAt(y, checkCol + 2, "]", chk);
+                }
+                else
+                {
+                    printAt(y, checkCol, "[ ]", chk);
+                }
+            }
         }
 
         // Fill empty rows
@@ -637,13 +684,21 @@ static bool editGeneralSettings(Settings& settings)
             case TK_ENTER:
             case ' ':
             {
-                int y = dlgY + 1 + selected;
-                string val = getStringInput(y, dlgX + 2, items[selected].maxLen,
-                    *(items[selected].value), valueAttr);
-                if (!val.empty())
+                if (selected == splashIdx)
                 {
-                    *(items[selected].value) = val;
+                    settings.showSplashScreen = !settings.showSplashScreen;
                     changed = true;
+                }
+                else
+                {
+                    int y = dlgY + 1 + selected;
+                    string val = getStringInput(y, dlgX + 2, items[selected].maxLen,
+                        *(items[selected].value), valueAttr);
+                    if (!val.empty())
+                    {
+                        *(items[selected].value) = val;
+                        changed = true;
+                    }
                 }
                 break;
             }
@@ -804,6 +859,7 @@ static void showMainMenu(Settings& settings, const string& baseDir)
 int main(int argc, char* argv[])
 {
     // Determine base directory (where the executable lives)
+    // Theme files, dictionaries, and taglines are relative to this
     std::string baseDir = ".";
     if (argc > 0 && argv[0] != nullptr)
     {
@@ -813,7 +869,9 @@ int main(int argc, char* argv[])
             baseDir = exePath.string();
         }
     }
-    settingsDir() = baseDir;
+
+    // Settings are stored in the SlyMail data directory (~/.slymail)
+    settingsDir() = getSlyMailDataDir();
 
     // Initialize terminal
     auto terminal = createTerminal();

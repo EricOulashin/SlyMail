@@ -1,4 +1,6 @@
 #include "qwk.h"
+#include "utf8_util.h"
+#include <cctype>
 
 using std::string;
 using std::vector;
@@ -150,7 +152,7 @@ static std::map<long, int> buildNdxMap(const std::string& extractDir)
         std::string upper;
         for (char c : fname)
         {
-            upper += toupper(c);
+            upper += static_cast<char>(toupper(static_cast<unsigned char>(c)));
         }
 
         // Check for .NDX extension
@@ -225,10 +227,15 @@ bool parseMessagesDat(const std::string& path,
     {
         QwkMessage msg;
 
+        // Record the byte offset of this message header (for HEADERS.DAT matching)
+        msg.msgOffset = (currentBlock - 1) * QWK_BLOCK_LEN;
+
         // Status flag
         msg.status = static_cast<QwkStatus>(block[0]);
         msg.isPrivate = (msg.status == QwkStatus::NewPrivate ||
                          msg.status == QwkStatus::OldPrivate);
+        // Vote/ballot response messages (status 'V') should be hidden from message lists
+        msg.isVoteResponse = (msg.status == QwkStatus::Vote);
 
         // Message number (bytes 1-7)
         msg.number = 0;
@@ -303,10 +310,43 @@ bool parseMessagesDat(const std::string& path,
                 uint8_t ch = static_cast<uint8_t>(bodyBuf[i]);
                 if (ch == QWK_NEWLINE)
                 {
+                    // 0xE3 could be a QWK newline or a UTF-8 lead byte.
+                    // If followed by valid UTF-8 continuation bytes, it's UTF-8.
+                    bool isUtf8LeadByte = false;
+                    if (i + 2 < bytesRead)
+                    {
+                        uint8_t b1 = static_cast<uint8_t>(bodyBuf[i + 1]);
+                        uint8_t b2 = static_cast<uint8_t>(bodyBuf[i + 2]);
+                        if ((b1 & 0xC0) == 0x80 && (b2 & 0xC0) == 0x80)
+                        {
+                            isUtf8LeadByte = true;
+                        }
+                    }
+                    if (isUtf8LeadByte)
+                    {
+                        // Treat as UTF-8 3-byte sequence
+                        msg.body += static_cast<char>(ch);
+                        msg.utf8 = true;
+                    }
+                    else
+                    {
+                        msg.body += '\n';
+                    }
+                }
+                else if (ch == '\n')
+                {
+                    // Standard newline (used in UTF-8 mode QWK packets)
                     msg.body += '\n';
                 }
-                else if (ch >= 32 || ch == '\t')
+                else if (ch >= 32 || ch == '\t' || ch == 0x01 || ch == 0x03 || ch == 0x1B)
                 {
+                    // Allow through: printable chars, tab, Ctrl-A (Synchronet),
+                    // Ctrl-C (WWIV heart codes), ESC (ANSI sequences)
+                    msg.body += static_cast<char>(ch);
+                }
+                else if (ch >= 0x80)
+                {
+                    // High bytes: could be CP437 or UTF-8 continuation
                     msg.body += static_cast<char>(ch);
                 }
             }
@@ -315,6 +355,24 @@ bool parseMessagesDat(const std::string& path,
                    (msg.body.back() == ' ' || msg.body.back() == '\n'))
             {
                 msg.body.pop_back();
+            }
+
+            // Scan for attachment kludge lines
+            {
+                std::istringstream bodyStream(msg.body);
+                string bodyLine;
+                while (std::getline(bodyStream, bodyLine))
+                {
+                    if (bodyLine.find("@ATTACH:") == 0)
+                    {
+                        string attachFile = trimStr(bodyLine.substr(8));
+                        if (!attachFile.empty())
+                        {
+                            msg.hasAttachment = true;
+                            msg.attachmentFiles.push_back(attachFile);
+                        }
+                    }
+                }
             }
         }
 
@@ -368,7 +426,7 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
         return std::nullopt;
     }
 
-    // Find CONTROL.DAT, MESSAGES.DAT, and HEADERS.DAT (case-insensitive)
+    // Find CONTROL.DAT, MESSAGES.DAT, HEADERS.DAT, and VOTING.DAT (case-insensitive)
     std::string controlPath, messagesPath, headersPath;
     for (const auto& entry : fs::directory_iterator(packet.extractDir))
     {
@@ -376,7 +434,7 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
         std::string upper;
         for (char c : fname)
         {
-            upper += toupper(c);
+            upper += static_cast<char>(toupper(static_cast<unsigned char>(c)));
         }
 
         if (upper == "CONTROL.DAT")
@@ -417,9 +475,23 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
     }
 
     // Parse HEADERS.DAT (QWKE extended headers) to override from/to/subject
-    // with extended versions that may exceed the 25-char limit
+    // with extended versions that may exceed the 25-char limit.
+    // Uses byte offset matching for accurate message identification.
     if (!headersPath.empty())
     {
+        // Build a map from byte offset -> message pointer for fast lookup
+        std::map<long, QwkMessage*> offsetMap;
+        for (auto& conf : packet.conferences)
+        {
+            for (auto& msg : conf.messages)
+            {
+                if (msg.msgOffset > 0)
+                {
+                    offsetMap[msg.msgOffset] = &msg;
+                }
+            }
+        }
+
         std::ifstream hf(headersPath);
         if (hf.is_open())
         {
@@ -428,9 +500,11 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
             // Sender: Full Name
             // Recipient: Full Name
             // Subject: Full Subject
+            // Utf8: true/false
             std::string line;
             long currentOffset = -1;
-            std::string hdrSender, hdrRecipient, hdrSubject;
+            std::string hdrSender, hdrRecipient, hdrSubject, hdrMsgId;
+            bool hdrUtf8 = false;
 
             auto applyHeaders = [&]()
             {
@@ -438,32 +512,30 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
                 {
                     return;
                 }
-                // Find the message at this offset
-                // Offset is in bytes from start of MESSAGES.DAT
-                // Block number = offset / 128; message block index = blockNum - 1 (skip header)
-                for (auto& conf : packet.conferences)
+                // Find message by exact byte offset
+                auto it = offsetMap.find(currentOffset);
+                if (it != offsetMap.end())
                 {
-                    for (auto& msg : conf.messages)
+                    QwkMessage* msg = it->second;
+                    if (!hdrSender.empty())
                     {
-                        // Match by message number (approximate - use conference + sequential)
-                        // The offset corresponds to the message's position in MESSAGES.DAT
-                        // Since we don't track exact offsets, match by checking if the
-                        // extended headers have values that differ from the 25-char truncated ones
-                        if (!hdrSender.empty() && !msg.from.empty()
-                            && hdrSender.find(msg.from.substr(0, std::min(msg.from.size(), (size_t)10))) == 0)
-                        {
-                            msg.from = hdrSender;
-                        }
-                        if (!hdrRecipient.empty() && !msg.to.empty()
-                            && hdrRecipient.find(msg.to.substr(0, std::min(msg.to.size(), (size_t)10))) == 0)
-                        {
-                            msg.to = hdrRecipient;
-                        }
-                        if (!hdrSubject.empty() && !msg.subject.empty()
-                            && hdrSubject.find(msg.subject.substr(0, std::min(msg.subject.size(), (size_t)10))) == 0)
-                        {
-                            msg.subject = hdrSubject;
-                        }
+                        msg->from = hdrSender;
+                    }
+                    if (!hdrRecipient.empty())
+                    {
+                        msg->to = hdrRecipient;
+                    }
+                    if (!hdrSubject.empty())
+                    {
+                        msg->subject = hdrSubject;
+                    }
+                    if (hdrUtf8)
+                    {
+                        msg->utf8 = true;
+                    }
+                    if (!hdrMsgId.empty())
+                    {
+                        msg->msgId = hdrMsgId;
                     }
                 }
             };
@@ -497,10 +569,12 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
                     hdrSender.clear();
                     hdrRecipient.clear();
                     hdrSubject.clear();
+                    hdrMsgId.clear();
+                    hdrUtf8 = false;
                     continue;
                 }
 
-                // Key: Value
+                // Key: Value (with ": " separator)
                 auto colonPos = line.find(": ");
                 if (colonPos != std::string::npos)
                 {
@@ -518,11 +592,318 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
                     {
                         hdrSubject = val;
                     }
+                    else if (key == "Utf8")
+                    {
+                        hdrUtf8 = (val == "true" || val == "True" || val == "TRUE");
+                    }
+                    else if (key == "RFC822MSGID")
+                    {
+                        hdrMsgId = val;
+                    }
+                }
+                // Key=Value (with "=" separator)
+                else
+                {
+                    auto eqPos = line.find('=');
+                    if (eqPos != std::string::npos)
+                    {
+                        std::string key = trimStr(line.substr(0, eqPos));
+                        std::string val = trimStr(line.substr(eqPos + 1));
+                        if (key == "Sender")
+                        {
+                            hdrSender = val;
+                        }
+                        else if (key == "Recipient")
+                        {
+                            hdrRecipient = val;
+                        }
+                        else if (key == "Subject")
+                        {
+                            hdrSubject = val;
+                        }
+                        else if (key == "Utf8")
+                        {
+                            hdrUtf8 = (val == "true" || val == "True" || val == "TRUE");
+                        }
+                        else if (key == "RFC822MSGID")
+                        {
+                            hdrMsgId = val;
+                        }
+                    }
                 }
             }
             // Apply last section
             applyHeaders();
             hf.close();
+        }
+    }
+
+    // Also check for QWKE-style extended headers as kludge lines in message bodies
+    // (To:, From:, Subject: at the start of message body)
+    for (auto& conf : packet.conferences)
+    {
+        for (auto& msg : conf.messages)
+        {
+            std::istringstream bodyStream(msg.body);
+            string bodyLine;
+            string newBody;
+            bool firstLines = true;
+
+            while (std::getline(bodyStream, bodyLine))
+            {
+                if (!bodyLine.empty() && bodyLine.back() == '\r')
+                {
+                    bodyLine.pop_back();
+                }
+
+                if (firstLines)
+                {
+                    if (bodyLine.substr(0, 4) == "To: " && bodyLine.size() > 4)
+                    {
+                        msg.to = trimStr(bodyLine.substr(4));
+                        continue;
+                    }
+                    else if (bodyLine.substr(0, 6) == "From: " && bodyLine.size() > 6)
+                    {
+                        msg.from = trimStr(bodyLine.substr(6));
+                        continue;
+                    }
+                    else if (bodyLine.substr(0, 9) == "Subject: " && bodyLine.size() > 9)
+                    {
+                        msg.subject = trimStr(bodyLine.substr(9));
+                        continue;
+                    }
+                    else
+                    {
+                        firstLines = false;
+                    }
+                }
+
+                if (!newBody.empty())
+                {
+                    newBody += '\n';
+                }
+                newBody += bodyLine;
+            }
+
+            if (firstLines == false || newBody != msg.body)
+            {
+                // Only update body if we actually stripped QWKE headers
+                if (newBody.size() < msg.body.size())
+                {
+                    msg.body = newBody;
+                }
+            }
+        }
+    }
+
+    // Check for file attachments in the extracted directory
+    for (auto& conf : packet.conferences)
+    {
+        for (auto& msg : conf.messages)
+        {
+            // Check for files matching the message (common attachment patterns)
+            // Attachments can be stored at the top level of the packet
+            if (!msg.attachmentFiles.empty())
+            {
+                // Verify each referenced file exists
+                for (const auto& fname : msg.attachmentFiles)
+                {
+                    string attachPath = packet.extractDir + PATH_SEP_STR + fname;
+                    if (fs::exists(attachPath))
+                    {
+                        msg.hasAttachment = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Parse VOTING.DAT (Synchronet QWKE extension)
+    packet.voting = parseVotingDat(packet.extractDir);
+
+    // Associate poll data from VOTING.DAT with messages.
+    // Polls in VOTING.DAT may or may not have a corresponding message in
+    // MESSAGES.DAT. For polls that don't, we create synthetic messages so
+    // they appear in the conference's message list.
+    if (!packet.voting.empty())
+    {
+        // Try to match each poll to an existing message by msgId or conference+from+subject
+        std::vector<bool> pollMatched(packet.voting.polls.size(), false);
+
+        for (size_t pi = 0; pi < packet.voting.polls.size(); ++pi)
+        {
+            const auto& poll = packet.voting.polls[pi];
+            for (auto& conf : packet.conferences)
+            {
+                if (conf.number != poll.conference) continue;
+                for (auto& msg : conf.messages)
+                {
+                    // Match by msgId (most reliable) or by from+subject
+                    bool match = false;
+                    if (!poll.msgId.empty() && !msg.msgId.empty() &&
+                        poll.msgId == msg.msgId)
+                    {
+                        match = true;
+                    }
+                    else if (msg.from == poll.from && msg.subject == poll.question)
+                    {
+                        match = true;
+                    }
+
+                    if (match)
+                    {
+                        msg.isPoll = true;
+                        msg.pollIndex = static_cast<int>(pi);
+                        if (!poll.msgId.empty() && msg.msgId.empty())
+                        {
+                            msg.msgId = poll.msgId;
+                        }
+                        pollMatched[pi] = true;
+                    }
+                }
+            }
+        }
+
+        // Create synthetic messages for polls that have no corresponding
+        // message in MESSAGES.DAT. This is common with Synchronet, which
+        // puts poll definitions only in VOTING.DAT.
+        for (size_t pi = 0; pi < packet.voting.polls.size(); ++pi)
+        {
+            if (pollMatched[pi]) continue;
+
+            const auto& poll = packet.voting.polls[pi];
+
+            QwkMessage synMsg;
+            synMsg.number = 0;
+            synMsg.from = poll.from;
+            synMsg.to = "All";
+            synMsg.subject = poll.question;
+            synMsg.conference = poll.conference;
+            synMsg.isPoll = true;
+            synMsg.pollIndex = static_cast<int>(pi);
+            synMsg.msgId = poll.msgId;
+            synMsg.status = QwkStatus::NewPublic;
+
+            // Parse date from VOTING.DAT WhenWritten field (ISO format: YYYYMMDDHHMMSS)
+            if (poll.date.size() >= 8)
+            {
+                // Try to extract MM-DD-YY from the ISO-ish date
+                std::string wd = poll.date;
+                // Remove spaces and timezone info
+                auto spPos = wd.find(' ');
+                if (spPos != std::string::npos) wd = wd.substr(0, spPos);
+                if (wd.size() >= 8)
+                {
+                    // Format: YYYYMMDDHHMMSS
+                    std::string yyyy = wd.substr(0, 4);
+                    std::string mm = wd.substr(4, 2);
+                    std::string dd = wd.substr(6, 2);
+                    synMsg.date = mm + "-" + dd + "-" + yyyy.substr(2, 2);
+                    if (wd.size() >= 12)
+                    {
+                        synMsg.time = wd.substr(8, 2) + ":" + wd.substr(10, 2);
+                    }
+                }
+            }
+
+            // Build a body that describes the poll (for display if the poll
+            // renderer doesn't kick in for some reason)
+            synMsg.body = "Poll: " + poll.question + "\n";
+            for (const auto& comment : poll.comments)
+            {
+                synMsg.body += comment + "\n";
+            }
+            synMsg.body += "\n";
+            for (size_t a = 0; a < poll.answers.size(); ++a)
+            {
+                synMsg.body += std::to_string(a + 1) + ". " + poll.answers[a].text + "\n";
+            }
+
+            // Add to the appropriate conference, inserting at the correct
+            // chronological position based on date so polls appear among
+            // the messages from the same time period.
+            QwkConference* conf = packet.findConference(poll.conference);
+            if (!conf)
+            {
+                // Conference doesn't exist yet — create it
+                QwkConference newConf(poll.conference,
+                    "Conference " + std::to_string(poll.conference));
+                packet.conferences.push_back(std::move(newConf));
+                conf = &packet.conferences.back();
+            }
+
+            // Find the insertion point by comparing dates.
+            // Messages in MESSAGES.DAT are generally in chronological order.
+            // Insert just after the last message with a date <= the poll's date.
+            auto toSortable = [](const std::string& d) -> std::string
+            {
+                // d is "MM-DD-YY" — convert to "YYMMDD" for comparison
+                if (d.empty()) return "";
+                size_t dash1 = d.find('-');
+                if (dash1 == std::string::npos) return "";
+                size_t dash2 = d.find('-', dash1 + 1);
+                if (dash2 == std::string::npos) return "";
+                std::string mm = d.substr(0, dash1);
+                std::string dd = d.substr(dash1 + 1, dash2 - dash1 - 1);
+                std::string yy = d.substr(dash2 + 1);
+                if (mm.size() == 1) mm = "0" + mm;
+                if (dd.size() == 1) dd = "0" + dd;
+                if (yy.size() == 1) yy = "0" + yy;
+                return yy + mm + dd;
+            };
+
+            std::string synSort = toSortable(synMsg.date);
+            size_t insertPos = conf->messages.size(); // default: append at end
+            if (!synSort.empty())
+            {
+                for (size_t mi = 0; mi < conf->messages.size(); ++mi)
+                {
+                    std::string existSort = toSortable(conf->messages[mi].date);
+                    if (!existSort.empty() && existSort > synSort)
+                    {
+                        insertPos = mi;
+                        break;
+                    }
+                }
+            }
+            conf->messages.insert(conf->messages.begin() + static_cast<long>(insertPos),
+                                   std::move(synMsg));
+        }
+
+        // Mark messages with Vote status as polls (even if not in VOTING.DAT)
+        for (auto& conf : packet.conferences)
+        {
+            for (auto& msg : conf.messages)
+            {
+                if (msg.status == QwkStatus::Vote && !msg.isPoll)
+                {
+                    msg.isVoteResponse = true;
+                }
+            }
+        }
+
+        // Tally up/down votes from vote records on non-poll messages
+        for (const auto& vr : packet.voting.voteRecords)
+        {
+            for (auto& conf : packet.conferences)
+            {
+                if (conf.number != vr.conference) continue;
+                for (auto& msg : conf.messages)
+                {
+                    if (!msg.msgId.empty() && msg.msgId == vr.inReplyTo && !msg.isPoll)
+                    {
+                        if (vr.upVote)
+                        {
+                            ++msg.upvotes;
+                        }
+                        else if (vr.downVote)
+                        {
+                            ++msg.downvotes;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -533,9 +914,10 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
 bool createRepPacket(const std::string& repFilePath,
                      const std::string& bbsID,
                      const std::string& /* userName */,
-                     const std::vector<QwkReply>& replies)
+                     const std::vector<QwkReply>& replies,
+                     const std::vector<PendingVote>& pendingVotes)
 {
-    if (replies.empty())
+    if (replies.empty() && pendingVotes.empty())
     {
         return false;
     }
@@ -546,8 +928,12 @@ bool createRepPacket(const std::string& repFilePath,
     std::string idUpper = bbsID;
     for (auto& c : idUpper)
     {
-        c = toupper(c);
+        c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
     }
+
+    // Only write the .MSG file if there are actual message replies
+    if (!replies.empty())
+    {
 
     std::string msgPath = repDir + PATH_SEP_STR + idUpper + ".MSG";
     FILE* f = fopen(msgPath.c_str(), "wb");
@@ -661,6 +1047,108 @@ bool createRepPacket(const std::string& repFilePath,
     }
 
     fclose(f);
+
+    } // end if (!replies.empty())
+
+    // Generate HEADERS.DAT for QWKE support (extended fields > 25 chars)
+    {
+        bool needHeaders = false;
+        for (const auto& reply : replies)
+        {
+            if (reply.to.size() > 25 || reply.from.size() > 25 ||
+                reply.subject.size() > 25 || !reply.editor.empty())
+            {
+                needHeaders = true;
+                break;
+            }
+        }
+
+        if (needHeaders)
+        {
+            string headersPath = repDir + PATH_SEP_STR + "HEADERS.DAT";
+            std::ofstream hf(headersPath);
+            if (hf.is_open())
+            {
+                // Track offset: header block (128 bytes) + per message
+                long offset = QWK_BLOCK_LEN; // Skip BBS ID header block
+                for (const auto& reply : replies)
+                {
+                    std::string fullBody = reply.body;
+                    int bodyLen = static_cast<int>(fullBody.size());
+                    int totalBytes = QWK_BLOCK_LEN + bodyLen;
+                    int numBlocks = (totalBytes + QWK_BLOCK_LEN - 1) / QWK_BLOCK_LEN;
+
+                    hf << "[" << std::hex << offset << "]\n" << std::dec;
+                    if (reply.from.size() > 25)
+                    {
+                        hf << "Sender: " << reply.from << "\n";
+                    }
+                    if (reply.to.size() > 25)
+                    {
+                        hf << "Recipient: " << reply.to << "\n";
+                    }
+                    if (reply.subject.size() > 25)
+                    {
+                        hf << "Subject: " << reply.subject << "\n";
+                    }
+                    if (!reply.editor.empty())
+                    {
+                        hf << "Editor: " << reply.editor << "\n";
+                    }
+                    hf << "\n";
+
+                    offset += numBlocks * QWK_BLOCK_LEN;
+                }
+                hf.close();
+            }
+        }
+    }
+
+    // Generate VOTING.DAT for any pending votes
+    if (!pendingVotes.empty())
+    {
+        string votingPath = repDir + PATH_SEP_STR + "VOTING.DAT";
+        std::ofstream vf(votingPath);
+        if (vf.is_open())
+        {
+            // Get current time for WhenWritten
+            time_t now = std::time(nullptr);
+            struct tm* tm = localtime(&now);
+            char timeBuf[64];
+            snprintf(timeBuf, sizeof(timeBuf), "%04d-%02d-%02dT%02d:%02d:%02d",
+                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                     tm->tm_hour, tm->tm_min, tm->tm_sec);
+
+            int voteIdx = 0;
+            for (const auto& vote : pendingVotes)
+            {
+                // Write offset section (dummy offset, just needs to be unique)
+                vf << "[" << std::hex << (0x1000 + voteIdx * 0x100) << "]\n" << std::dec;
+
+                // Write vote section
+                vf << "[vote:" << vote.msgId << "]\n";
+                if (vote.upVote)
+                {
+                    vf << "UpVote = true\n";
+                }
+                else if (vote.downVote)
+                {
+                    vf << "DownVote = true\n";
+                }
+                else if (vote.votes != 0)
+                {
+                    vf << "Votes = 0x" << std::hex << vote.votes << std::dec << "\n";
+                }
+                vf << "WhenWritten: " << timeBuf << "\n";
+                vf << "Sender: " << vote.voter << "\n";
+                vf << "Conference: " << vote.conference << "\n";
+                vf << "\n";
+
+                ++voteIdx;
+            }
+            vf.close();
+        }
+    }
 
     bool ok = createZipArchive(repFilePath, repDir);
     cleanupTempDir(repDir);

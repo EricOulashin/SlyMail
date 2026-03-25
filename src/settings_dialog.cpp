@@ -936,7 +936,7 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
     if (dlgW > g_term->getCols() - 4) dlgW = g_term->getCols() - 4;
 
     int visibleItems = g_term->getRows() - 10;
-    const int itemCount = 6;
+    const int itemCount = 9;
     if (visibleItems > itemCount) visibleItems = itemCount;
     int dlgH = visibleItems + 5;
     int dlgY = (g_term->getRows() - dlgH) / 2;
@@ -965,10 +965,16 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                          settings.showTearLine ? "Y" : "N", true, false, SET_SHOW_TEAR});
         items.push_back({"Scrollbar in reader",
                          settings.useScrollbar ? "Y" : "N", true, false, SET_USE_SCROLLBAR});
-        items.push_back({"Strip ANSI codes",
+        items.push_back({"Strip ANSI codes from messages",
                          settings.stripAnsi ? "Y" : "N", true, false, SET_STRIP_ANSI});
+        items.push_back({"Attribute code toggles...",
+                         "", false, true, SET_ATTR_CODE_TOGGLES});
+        items.push_back({"Search using regular expression",
+                         settings.useRegexSearch ? "Y" : "N", true, false, SET_REGEX_SEARCH});
         items.push_back({"List messages in reversed",
                          settings.reverseOrder ? "Y" : "N", true, false, SET_REVERSE_ORDER});
+        items.push_back({"Show splash screen on startup",
+                         settings.showSplashScreen ? "Y" : "N", true, false, SET_SPLASH_SCREEN});
         items.push_back({"Reply packet directory",
                          settings.replyDir.empty() ? "(current dir)" : settings.replyDir,
                          false, false, SET_REPLY_DIR});
@@ -1140,8 +1146,25 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                         changed = true;
                         needFullRedraw = true;
                         break;
+                    case SET_ATTR_CODE_TOGGLES:
+                        if (showAttrCodeToggles(settings))
+                        {
+                            changed = true;
+                        }
+                        needFullRedraw = true;
+                        break;
+                    case SET_REGEX_SEARCH:
+                        settings.useRegexSearch = !settings.useRegexSearch;
+                        changed = true;
+                        needFullRedraw = true;
+                        break;
                     case SET_REVERSE_ORDER:
                         settings.reverseOrder = !settings.reverseOrder;
+                        changed = true;
+                        needFullRedraw = true;
+                        break;
+                    case SET_SPLASH_SCREEN:
+                        settings.showSplashScreen = !settings.showSplashScreen;
                         changed = true;
                         needFullRedraw = true;
                         break;
@@ -1179,6 +1202,152 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                         settings.save();
                     }
                 }
+                return changed;
+            default:
+                break;
+        }
+    }
+}
+
+// ============================================================
+// Attribute code toggles sub-dialog
+// Checkbox list for enabling/disabling interpretation of color
+// attribute codes from various BBS software packages.
+// ============================================================
+bool showAttrCodeToggles(Settings& settings)
+{
+    struct AttrItem
+    {
+        string label;
+        bool*  value;
+    };
+    vector<AttrItem> items =
+    {
+        {"Synchronet Ctrl-A attribute codes",   &settings.attrSynchronet},
+        {"WWIV attribute codes",                &settings.attrWWIV},
+        {"Celerity attribute codes",            &settings.attrCelerity},
+        {"Renegade attribute codes",            &settings.attrRenegade},
+        {"PCBoard/Wildcat attribute codes",     &settings.attrPCBoard},
+    };
+
+    int itemCount = static_cast<int>(items.size());
+    int selected = 0;
+    bool changed = false;
+
+    int dlgW = 60;
+    if (dlgW > g_term->getCols() - 4)
+    {
+        dlgW = g_term->getCols() - 4;
+    }
+    int dlgH = itemCount + 7;
+    int dlgY = (g_term->getRows() - dlgH) / 2;
+    int dlgX = (g_term->getCols() - dlgW) / 2;
+
+    TermAttr borderAttr = tAttr(TC_GREEN, TC_BLACK, false);
+    TermAttr titleAttr  = tAttr(TC_BLUE, TC_BLACK, true);
+    TermAttr itemAttr   = tAttr(TC_CYAN, TC_BLACK, false);
+    TermAttr selAttr    = tAttr(TC_BLUE, TC_WHITE, false);
+    TermAttr checkAttr  = tAttr(TC_GREEN, TC_BLACK, true);
+    TermAttr noteAttr   = tAttr(TC_YELLOW, TC_BLACK, false);
+    int checkCol = dlgX + dlgW - 8;
+
+    while (true)
+    {
+        // Clear dialog area
+        for (int r = 0; r < dlgH; ++r)
+        {
+            fillRow(dlgY + r, tAttr(TC_BLACK, TC_BLACK, false), dlgX, dlgX + dlgW);
+        }
+
+        // Box
+        g_term->setAttr(borderAttr);
+        g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
+
+        // Title
+        string titleText = " Attribute Code Toggles ";
+        int titleX = dlgX + 3;
+        g_term->setAttr(borderAttr);
+        g_term->putCP437(dlgY, titleX, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
+        g_term->setAttr(titleAttr);
+        g_term->printStr(dlgY, titleX + 1, titleText);
+        g_term->setAttr(borderAttr);
+        g_term->putCP437(dlgY, titleX + static_cast<int>(titleText.size()) + 1,
+                         CP437_BOX_DRAWINGS_LIGHT_LEFT_T);
+
+        // "Enabled" column header
+        g_term->setAttr(titleAttr);
+        g_term->printStr(dlgY, checkCol - 2, " Enabled ");
+
+        // Items
+        for (int i = 0; i < itemCount; ++i)
+        {
+            int y = dlgY + 1 + i;
+            bool isSel = (i == selected);
+
+            if (isSel)
+            {
+                fillRow(y, selAttr, dlgX + 1, dlgX + dlgW - 1);
+            }
+            else
+            {
+                fillRow(y, tAttr(TC_BLACK, TC_BLACK, false), dlgX + 1, dlgX + dlgW - 1);
+            }
+
+            TermAttr lbl = isSel ? selAttr : itemAttr;
+            printAt(y, dlgX + 2, truncateStr(items[i].label, checkCol - dlgX - 4), lbl);
+
+            // Checkbox
+            TermAttr chk = isSel ? selAttr : checkAttr;
+            if (*(items[i].value))
+            {
+                printAt(y, checkCol, "[", chk);
+                g_term->setAttr(chk);
+                g_term->putCP437(y, checkCol + 1, CP437_CHECK_MARK);
+                printAt(y, checkCol + 2, "]", chk);
+            }
+            else
+            {
+                printAt(y, checkCol, "[ ]", chk);
+            }
+        }
+
+        // Notes
+        int noteY = dlgY + 1 + itemCount;
+        printAt(noteY, dlgX + 2, "ANSI escape codes are always enabled.", noteAttr);
+        printAt(noteY + 1, dlgX + 2, "These apply to the reader and editor.", noteAttr);
+
+        // Bottom help
+        int helpY = dlgY + dlgH - 1;
+        string helpText = " Up/Dn, Enter/Space=Toggle, ESC=Done ";
+        int helpX = dlgX + (dlgW - static_cast<int>(helpText.size())) / 2;
+        g_term->setAttr(titleAttr);
+        g_term->printStr(helpY, helpX, helpText);
+
+        g_term->refresh();
+
+        int ch = g_term->getKey();
+        switch (ch)
+        {
+            case TK_UP:
+                if (selected > 0) --selected;
+                break;
+            case TK_DOWN:
+                if (selected < itemCount - 1) ++selected;
+                break;
+            case TK_HOME:
+                selected = 0;
+                break;
+            case TK_END:
+                selected = itemCount - 1;
+                break;
+            case TK_ENTER:
+            case ' ':
+                *(items[selected].value) = !*(items[selected].value);
+                changed = true;
+                break;
+            case TK_ESCAPE:
+            case 'q':
+            case 'Q':
                 return changed;
             default:
                 break;

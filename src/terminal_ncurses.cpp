@@ -4,6 +4,7 @@
 
 #include "terminal_ncurses.h"
 #include <unistd.h>
+#include <clocale>
 
 using std::string;
 using std::unique_ptr;
@@ -26,6 +27,10 @@ NCursesTerminal::~NCursesTerminal()
 
 void NCursesTerminal::init()
 {
+    // Enable UTF-8 support: set the locale from the environment
+    // so ncurses handles multi-byte characters correctly.
+    setlocale(LC_ALL, "");
+
     initscr();
     raw();      // Use raw() instead of cbreak() to also disable
                 // XON/XOFF flow control so Ctrl-Q/Ctrl-S pass through

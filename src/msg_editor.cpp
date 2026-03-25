@@ -1,7 +1,159 @@
 #include "msg_editor.h"
+#include "bbs_colors.h"
+#include <cctype>
 
 using std::string;
 using std::vector;
+
+// ============================================================
+// ANSI-aware helpers for the editor
+// ============================================================
+
+// Return the length of an ANSI escape sequence starting at pos, or 0 if none.
+static int ansiSeqLen(const string& text, int pos)
+{
+    if (pos < 0 || pos >= static_cast<int>(text.size()))
+    {
+        return 0;
+    }
+    if (static_cast<uint8_t>(text[pos]) != 0x1B)
+    {
+        return 0;
+    }
+    if (pos + 1 >= static_cast<int>(text.size()) || text[pos + 1] != '[')
+    {
+        return 0;
+    }
+    // Scan for the final byte (letter in 0x40-0x7E range)
+    int i = pos + 2;
+    while (i < static_cast<int>(text.size()))
+    {
+        char ch = text[i];
+        if (ch >= 0x40 && ch <= 0x7E)
+        {
+            return i - pos + 1; // length including the final byte
+        }
+        if ((ch >= '0' && ch <= '9') || ch == ';')
+        {
+            ++i;
+            continue;
+        }
+        break; // invalid character in sequence
+    }
+    return 0; // unterminated
+}
+
+// Calculate the display column for a byte offset, skipping ANSI sequences.
+// ANSI sequences have zero display width.
+static int byteColToDisplayCol(const string& text, int byteCol)
+{
+    int displayCol = 0;
+    int i = 0;
+    while (i < byteCol && i < static_cast<int>(text.size()))
+    {
+        int seqLen = ansiSeqLen(text, i);
+        if (seqLen > 0)
+        {
+            i += seqLen; // skip the sequence, no display width
+        }
+        else
+        {
+            ++displayCol;
+            ++i;
+        }
+    }
+    return displayCol;
+}
+
+// Move byte offset forward past any ANSI sequence at the current position.
+// If not at an ANSI sequence, advance by 1.
+static int skipForward(const string& text, int pos)
+{
+    if (pos >= static_cast<int>(text.size()))
+    {
+        return pos;
+    }
+    int seqLen = ansiSeqLen(text, pos);
+    if (seqLen > 0)
+    {
+        return pos + seqLen;
+    }
+    return pos + 1;
+}
+
+// Move byte offset backward. If the position is right after an ANSI sequence,
+// skip back over the entire sequence.
+static int skipBackward(const string& text, int pos)
+{
+    if (pos <= 0)
+    {
+        return 0;
+    }
+    // Check if the character(s) before pos form an ANSI sequence ending here.
+    // An ANSI sequence ends with a byte in 0x40-0x7E. Scan backwards to find ESC[.
+    int endByte = pos - 1;
+    char ch = text[endByte];
+    if (ch >= 0x40 && ch <= 0x7E)
+    {
+        // Could be the end of an ANSI sequence. Scan backwards for ESC[
+        int scan = endByte - 1;
+        while (scan >= 0)
+        {
+            if (static_cast<uint8_t>(text[scan]) == 0x1B && scan + 1 < static_cast<int>(text.size())
+                && text[scan + 1] == '[')
+            {
+                // Verify it's a valid sequence from scan to endByte
+                int seqLen = ansiSeqLen(text, scan);
+                if (seqLen > 0 && scan + seqLen == pos)
+                {
+                    return scan; // skip back over the entire sequence
+                }
+                break;
+            }
+            char sc = text[scan];
+            if ((sc >= '0' && sc <= '9') || sc == ';' || sc == '[')
+            {
+                --scan;
+                continue;
+            }
+            break;
+        }
+    }
+    return pos - 1;
+}
+
+// Erase backward from pos: if right after an ANSI sequence, erase the whole
+// sequence. Otherwise erase 1 byte. Returns the new position.
+static int eraseBackward(string& text, int pos)
+{
+    if (pos <= 0)
+    {
+        return 0;
+    }
+    int newPos = skipBackward(text, pos);
+    int count = pos - newPos;
+    text.erase(newPos, count);
+    return newPos;
+}
+
+// Erase forward from pos: if at the start of an ANSI sequence, erase the
+// whole sequence. Otherwise erase 1 byte.
+static void eraseForward(string& text, int pos)
+{
+    if (pos >= static_cast<int>(text.size()))
+    {
+        return;
+    }
+    int seqLen = ansiSeqLen(text, pos);
+    if (seqLen > 0)
+    {
+        text.erase(pos, seqLen);
+    }
+    else
+    {
+        text.erase(pos, 1);
+    }
+}
 
 MessageEditor::MessageEditor()
     : cursorRow(0), cursorCol(0), scrollRow(0)
@@ -11,6 +163,7 @@ MessageEditor::MessageEditor()
     , quoteWindowOpen(false), quoteSelected(0), quoteScroll(0)
     , quoteWinTop(0), quoteWinHeight(0)
     , lastSearchText(""), searchStartLine(0)
+    , lastPickFg(7), lastPickBg(0), lastPickBright(false), lastPickSection(0)
 {
 }
 
@@ -49,6 +202,13 @@ void MessageEditor::init(const Settings& settings, const string& baseDir)
     {
         currentStyle = (rand() % 2 == 0) ? EditorStyle::Ice : EditorStyle::Dct;
     }
+
+    // Load attribute code toggle flags from settings
+    attrFlags.synchronet = settings.attrSynchronet;
+    attrFlags.wwiv = settings.attrWWIV;
+    attrFlags.celerity = settings.attrCelerity;
+    attrFlags.renegade = settings.attrRenegade;
+    attrFlags.pcboard = settings.attrPCBoard;
 
     // Load themes
     string configDir = baseDir.empty() ? "config_files" : baseDir + PATH_SEP_STR + "config_files";
@@ -125,16 +285,16 @@ void MessageEditor::prepareQuotes(const QwkMessage& msg, const Settings& setting
             if (spacePos != string::npos && spacePos + 1 < msg.from.size())
             {
                 // Multiple words: first letter of first word + first letter of last word
-                initials += static_cast<char>(toupper(msg.from[0]));
-                initials += static_cast<char>(toupper(msg.from[spacePos + 1]));
+                initials += static_cast<char>(toupper(static_cast<unsigned char>(msg.from[0])));
+                initials += static_cast<char>(toupper(static_cast<unsigned char>(msg.from[spacePos + 1])));
             }
             else
             {
                 // Single name: use first 2 characters (or 1 if name is 1 char)
-                initials += static_cast<char>(toupper(msg.from[0]));
+                initials += static_cast<char>(toupper(static_cast<unsigned char>(msg.from[0])));
                 if (msg.from.size() >= 2)
                 {
-                    initials += static_cast<char>(toupper(msg.from[1]));
+                    initials += static_cast<char>(toupper(static_cast<unsigned char>(msg.from[1])));
                 }
             }
         }
@@ -609,13 +769,39 @@ void MessageEditor::drawEditArea()
             bool isQuote = (!line.text.empty() &&
                 (line.text[0] == '>' ||
                  (line.text.size() > 2 && line.text.find("> ") < 5)));
-            TermAttr lineAttr = isQuote ? quoteAttr : textAttr;
-            string displayText = line.text;
-            if (static_cast<int>(displayText.size()) > editWidth)
+            TermAttr defaultAttr = isQuote ? quoteAttr : textAttr;
+
+            // Check if line contains ANSI codes
+            bool hasAnsi = (line.text.find('\x1b') != string::npos);
+
+            if (hasAnsi)
             {
-                displayText = displayText.substr(0, editWidth);
+                // Parse BBS color codes and render segment by segment
+                TermAttr attr = defaultAttr;
+                // Parse color codes using the attribute toggle settings
+                auto segments = parseBBSColors(line.text, attr, attrFlags);
+                int x = editLeft;
+                for (const auto& seg : segments)
+                {
+                    if (x >= editRight + 1) break;
+                    string text = seg.text;
+                    if (x + static_cast<int>(text.size()) > editRight + 1)
+                    {
+                        text = text.substr(0, editRight + 1 - x);
+                    }
+                    printAt(y, x, text, seg.attr);
+                    x += static_cast<int>(text.size());
+                }
             }
-            printAt(y, editLeft, displayText, lineAttr);
+            else
+            {
+                string displayText = line.text;
+                if (static_cast<int>(displayText.size()) > editWidth)
+                {
+                    displayText = displayText.substr(0, editWidth);
+                }
+                printAt(y, editLeft, displayText, defaultAttr);
+            }
         }
     }
 }
@@ -1266,7 +1452,7 @@ void MessageEditor::findText()
 
     // Case-insensitive search
     string upperSearch = searchText;
-    for (auto& c : upperSearch) c = static_cast<char>(toupper(c));
+    for (auto& c : upperSearch) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
 
     // Search from searchStartLine
     int totalLines = static_cast<int>(lines.size());
@@ -1274,7 +1460,7 @@ void MessageEditor::findText()
     {
         int lineIdx = (searchStartLine + i) % totalLines;
         string upperLine = lines[lineIdx].text;
-        for (auto& c : upperLine) c = static_cast<char>(toupper(c));
+        for (auto& c : upperLine) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
 
         size_t pos = upperLine.find(upperSearch);
         if (pos != string::npos)
@@ -1508,6 +1694,252 @@ void MessageEditor::showCommandKeyHelp()
 }
 
 // Main editor loop
+// Color picker dialog (Ctrl-K)
+// Shows a grid of 16 foreground colors x 8 background colors.
+// The selected color is inserted as an ANSI escape code at the cursor position.
+void MessageEditor::pickColor()
+{
+    int cols = g_term->getCols();
+    int rows = g_term->getRows();
+
+    // Color names for display
+    static const char* fgNames[] = {
+        "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
+        "BrBlack", "BrRed", "BrGreen", "BrYellow", "BrBlue", "BrMagenta", "BrCyan", "BrWhite"
+    };
+    static const char* bgNames[] = {
+        "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"
+    };
+    // Restore last-used color selection
+    int selFg = lastPickFg;
+    int selBg = lastPickBg;
+    bool selBright = lastPickBright;
+    int selSpecial = 0; // 0 = Normal, 1 = High
+
+    // Dialog dimensions
+    int dlgW = 50;
+    int dlgH = 20;
+    int dlgX = (cols - dlgW) / 2;
+    int dlgY = (rows - dlgH) / 2;
+
+    TermAttr borderAttr = tAttr(TC_CYAN, TC_BLACK, true);
+    TermAttr labelAttr = tAttr(TC_WHITE, TC_BLACK, true);
+    TermAttr helpAttr = tAttr(TC_GREEN, TC_BLACK, false);
+    TermAttr cursorAttr = tAttr(TC_WHITE, TC_BLUE, true);
+    TermAttr specialAttr = tAttr(TC_YELLOW, TC_BLACK, true);
+
+    int section = lastPickSection; // 0 = foreground, 1 = background, 2 = special attributes
+
+    // Helper to save the current picker state for next time
+    auto savePickState = [&]()
+    {
+        lastPickFg = selFg;
+        lastPickBg = selBg;
+        lastPickBright = selBright;
+        lastPickSection = section;
+    };
+
+    while (true)
+    {
+        // Clear dialog area
+        for (int r = 0; r < dlgH; ++r)
+        {
+            fillRow(dlgY + r, tAttr(TC_BLACK, TC_BLACK, false), dlgX, dlgX + dlgW);
+        }
+        drawBox(dlgY, dlgX, dlgH, dlgW, borderAttr, "Select Text Color", borderAttr);
+
+        // Foreground colors (2 rows of 8)
+        printAt(dlgY + 1, dlgX + 2, "Foreground:", labelAttr);
+        for (int i = 0; i < 8; ++i)
+        {
+            // Normal intensity
+            int x = dlgX + 2 + i * 5;
+            TermAttr colorAttr = tAttr(i, TC_BLACK, false);
+            bool isSel = (section == 0 && selFg == i && !selBright);
+            if (isSel)
+            {
+                printAt(dlgY + 2, x, " " + string(1, "krgybmcw"[i]) + " ", cursorAttr);
+            }
+            else
+            {
+                printAt(dlgY + 2, x, " " + string(1, "krgybmcw"[i]) + " ", colorAttr);
+            }
+
+            // High intensity
+            TermAttr brightAttr = tAttr(i, TC_BLACK, true);
+            isSel = (section == 0 && selFg == i && selBright);
+            if (isSel)
+            {
+                printAt(dlgY + 3, x, " " + string(1, "KRGYBMCW"[i]) + " ", cursorAttr);
+            }
+            else
+            {
+                printAt(dlgY + 3, x, " " + string(1, "KRGYBMCW"[i]) + " ", brightAttr);
+            }
+        }
+
+        // Background colors (1 row of 8)
+        printAt(dlgY + 5, dlgX + 2, "Background:", labelAttr);
+        for (int i = 0; i < 8; ++i)
+        {
+            int x = dlgX + 2 + i * 5;
+            TermAttr colorAttr = tAttr(TC_WHITE, i, true);
+            bool isSel = (section == 1 && selBg == i);
+            if (isSel)
+            {
+                printAt(dlgY + 6, x, " " + std::to_string(i) + " ", cursorAttr);
+            }
+            else
+            {
+                printAt(dlgY + 6, x, " " + std::to_string(i) + " ", colorAttr);
+            }
+        }
+
+        // Special attributes row
+        printAt(dlgY + 8, dlgX + 2, "Attributes:", labelAttr);
+        {
+            // Normal (reset)
+            bool isSel = (section == 2 && selSpecial == 0);
+            printAt(dlgY + 9, dlgX + 2, " N ", isSel ? cursorAttr : specialAttr);
+            printAt(dlgY + 9, dlgX + 5, "=Normal(reset)", isSel ? cursorAttr : helpAttr);
+
+            // High (bright/bold)
+            isSel = (section == 2 && selSpecial == 1);
+            printAt(dlgY + 9, dlgX + 22, " H ", isSel ? cursorAttr : specialAttr);
+            printAt(dlgY + 9, dlgX + 25, "=High(bright)", isSel ? cursorAttr : helpAttr);
+        }
+
+        // Preview
+        printAt(dlgY + 11, dlgX + 2, "Preview:", labelAttr);
+        TermAttr previewAttr = tAttr(selFg, selBg, selBright);
+        printAt(dlgY + 12, dlgX + 2, " Sample Text ", previewAttr);
+
+        // Current selection info
+        string fgStr = fgNames[selFg + (selBright ? 8 : 0)];
+        string bgStr = bgNames[selBg];
+        printAt(dlgY + 14, dlgX + 2, "FG: " + fgStr + "  BG: " + bgStr, labelAttr);
+
+        // Help
+        printAt(dlgY + 15, dlgX + 2, "Arrows=Select, Tab=FG/BG/Attr section", helpAttr);
+        printAt(dlgY + 16, dlgX + 2, "Enter=Apply, N=Normal, H=High, ESC=Cancel", helpAttr);
+
+        // Section indicator
+        string secStr;
+        switch (section)
+        {
+            case 0: secStr = "[Foreground]"; break;
+            case 1: secStr = "[Background]"; break;
+            case 2: secStr = "[Attributes]"; break;
+        }
+        printAt(dlgY + dlgH - 1, dlgX + (dlgW - static_cast<int>(secStr.size())) / 2,
+                secStr, borderAttr);
+
+        g_term->refresh();
+
+        int ch = g_term->getKey();
+        switch (ch)
+        {
+            case TK_LEFT:
+                if (section == 0)
+                {
+                    if (selFg > 0) --selFg;
+                }
+                else if (section == 1)
+                {
+                    if (selBg > 0) --selBg;
+                }
+                else if (section == 2)
+                {
+                    selSpecial = (selSpecial == 0) ? 1 : 0;
+                }
+                break;
+            case TK_RIGHT:
+                if (section == 0)
+                {
+                    if (selFg < 7) ++selFg;
+                }
+                else if (section == 1)
+                {
+                    if (selBg < 7) ++selBg;
+                }
+                else if (section == 2)
+                {
+                    selSpecial = (selSpecial == 0) ? 1 : 0;
+                }
+                break;
+            case TK_UP:
+                if (section == 0)
+                {
+                    selBright = !selBright;
+                }
+                break;
+            case TK_DOWN:
+                if (section == 0)
+                {
+                    selBright = !selBright;
+                }
+                break;
+            case TK_TAB:
+                section = (section + 1) % 3;
+                break;
+            case 'n': case 'N':
+            {
+                // Insert normal/reset ANSI code: ESC[0m
+                // Resets all attributes (foreground, background, bold) to defaults
+                string ansiReset = "\x1b[0m";
+                lines[cursorRow].text.insert(cursorCol, ansiReset);
+                cursorCol += static_cast<int>(ansiReset.size());
+                savePickState();
+                return;
+            }
+            case 'h': case 'H':
+            {
+                // Insert high/bright/bold ANSI code: ESC[1m
+                // Turns on bright/bold intensity for the current color
+                string ansiBright = "\x1b[1m";
+                lines[cursorRow].text.insert(cursorCol, ansiBright);
+                cursorCol += static_cast<int>(ansiBright.size());
+                savePickState();
+                return;
+            }
+            case TK_ENTER:
+            {
+                if (section == 2)
+                {
+                    // Apply the selected special attribute
+                    if (selSpecial == 0)
+                    {
+                        // Normal (reset)
+                        string ansiReset = "\x1b[0m";
+                        lines[cursorRow].text.insert(cursorCol, ansiReset);
+                        cursorCol += static_cast<int>(ansiReset.size());
+                    }
+                    else
+                    {
+                        // High (bright/bold)
+                        string ansiBright = "\x1b[1m";
+                        lines[cursorRow].text.insert(cursorCol, ansiBright);
+                        cursorCol += static_cast<int>(ansiBright.size());
+                    }
+                    savePickState();
+                    return;
+                }
+                // Insert ANSI color code at cursor position
+                TermAttr selectedColor = tAttr(selFg, selBg, selBright);
+                string ansiCode = termAttrToAnsi(selectedColor);
+                lines[cursorRow].text.insert(cursorCol, ansiCode);
+                cursorCol += static_cast<int>(ansiCode.size());
+                savePickState();
+                return;
+            }
+            case TK_ESCAPE:
+                return; // Cancel without inserting
+            default:
+                break;
+        }
+    }
+}
+
 EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
 {
     init(settings, baseDir);
@@ -1543,9 +1975,9 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
             drawQuoteWindow();
         }
 
-        // Position cursor
+        // Position cursor — use display column that skips ANSI sequences
         int displayRow = cursorRow - scrollRow;
-        int displayCol = cursorCol;
+        int displayCol = byteColToDisplayCol(lines[cursorRow].text, cursorCol);
         if (displayRow >= 0 && displayRow < editHeight)
         {
             g_term->moveTo(editTop + displayRow, editLeft + displayCol);
@@ -1697,7 +2129,7 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
             case TK_LEFT:
                 if (cursorCol > 0)
                 {
-                    --cursorCol;
+                    cursorCol = skipBackward(lines[cursorRow].text, cursorCol);
                 }
                 else if (cursorRow > 0)
                 {
@@ -1709,7 +2141,7 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
             case TK_RIGHT:
                 if (cursorCol < static_cast<int>(lines[cursorRow].text.size()))
                 {
-                    ++cursorCol;
+                    cursorCol = skipForward(lines[cursorRow].text, cursorCol);
                 }
                 else if (cursorRow < static_cast<int>(lines.size()) - 1)
                 {
@@ -1758,8 +2190,9 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
             case TK_BACKSPACE_8:
                 if (cursorCol > 0)
                 {
-                    lines[cursorRow].text.erase(cursorCol - 1, 1);
-                    --cursorCol;
+                    // Erase backward: deletes entire ANSI sequence if cursor
+                    // is right after one, otherwise deletes one character
+                    cursorCol = eraseBackward(lines[cursorRow].text, cursorCol);
                 }
                 else if (cursorRow > 0)
                 {
@@ -1773,7 +2206,9 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
             case TK_DELETE:
                 if (cursorCol < static_cast<int>(lines[cursorRow].text.size()))
                 {
-                    lines[cursorRow].text.erase(cursorCol, 1);
+                    // Erase forward: deletes entire ANSI sequence if cursor
+                    // is at the start of one, otherwise deletes one character
+                    eraseForward(lines[cursorRow].text, cursorCol);
                 }
                 else if (cursorRow < static_cast<int>(lines.size()) - 1)
                 {
@@ -1799,6 +2234,10 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
 
             case TK_CTRL_G:
                 insertGraphicChar();
+                break;
+
+            case TK_CTRL_K:
+                pickColor();
                 break;
 
             case TK_CTRL_L:
@@ -1865,7 +2304,7 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
                 while (!trimmedLine.empty() && trimmedLine.back() == ' ') trimmedLine.pop_back();
 
                 string upperLine = trimmedLine;
-                for (auto& c : upperLine) c = static_cast<char>(toupper(c));
+                for (auto& c : upperLine) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
 
                 if (upperLine == "/A")
                 {
@@ -1946,16 +2385,34 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
                     }
                     ++cursorCol;
 
-                    // Word wrap
-                    if (static_cast<int>(lines[cursorRow].text.size()) > editWidth)
+                    // Word wrap — use display width (excluding ANSI sequences)
+                    int lineDisplayWidth = byteColToDisplayCol(
+                        lines[cursorRow].text,
+                        static_cast<int>(lines[cursorRow].text.size()));
+                    if (lineDisplayWidth > editWidth)
                     {
-                        int wrapPos = editWidth;
-                        for (int w = editWidth; w > editWidth / 2; --w)
+                        // Find wrap position: walk from byte end backwards
+                        // looking for a space at or before the editWidth display column
+                        int wrapPos = static_cast<int>(lines[cursorRow].text.size());
+                        for (int w = wrapPos; w > 0; --w)
                         {
-                            if (lines[cursorRow].text[w] == ' ')
+                            if (byteColToDisplayCol(lines[cursorRow].text, w) <= editWidth
+                                && lines[cursorRow].text[w - 1] == ' ')
                             {
                                 wrapPos = w;
                                 break;
+                            }
+                        }
+                        // If no space found, wrap at the byte position closest to editWidth display cols
+                        if (wrapPos == static_cast<int>(lines[cursorRow].text.size()))
+                        {
+                            for (int w = 0; w < static_cast<int>(lines[cursorRow].text.size()); ++w)
+                            {
+                                if (byteColToDisplayCol(lines[cursorRow].text, w) >= editWidth)
+                                {
+                                    wrapPos = w;
+                                    break;
+                                }
                             }
                         }
                         string overflow = lines[cursorRow].text.substr(wrapPos);
@@ -2205,7 +2662,7 @@ vector<string> loadDictionary(const string& path)
             // Convert to lowercase for case-insensitive matching
             for (auto& c : word)
             {
-                c = static_cast<char>(tolower(c));
+                c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
             }
             words.push_back(word);
         }
@@ -2221,7 +2678,7 @@ bool isWordInDict(const vector<string>& dict, const string& word)
     string lower = word;
     for (auto& c : lower)
     {
-        c = static_cast<char>(tolower(c));
+        c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
     }
     return std::binary_search(dict.begin(), dict.end(), lower);
 }
@@ -2233,7 +2690,7 @@ vector<string> extractWords(const string& text)
     string current;
     for (char c : text)
     {
-        if (isalpha(c) || c == '\'')
+        if (isalpha(static_cast<unsigned char>(c)) || c == '\'')
         {
             current += c;
         }
@@ -2299,11 +2756,11 @@ bool performSpellCheck(vector<EditorLine>& lines,
         int i = 0;
         while (i < static_cast<int>(text.size()))
         {
-            if (isalpha(text[i]))
+            if (isalpha(static_cast<unsigned char>(text[i])))
             {
                 int start = i;
                 string word;
-                while (i < static_cast<int>(text.size()) && (isalpha(text[i]) || text[i] == '\''))
+                while (i < static_cast<int>(text.size()) && (isalpha(static_cast<unsigned char>(text[i])) || text[i] == '\''))
                 {
                     word += text[i];
                     ++i;

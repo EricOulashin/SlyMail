@@ -38,7 +38,17 @@ struct Settings
     bool        showKludgeLines;    // Show kludge/control lines
     bool        showTearLine;       // Show tear/origin lines
     bool        useScrollbar;       // Show scrollbar in reader
-    bool        stripAnsi;          // Strip ANSI codes from messages
+
+    // Attribute code toggles (ANSI is always enabled unless stripAnsi is set)
+    bool        stripAnsi;          // Strip all ANSI codes from messages
+    bool        attrSynchronet;     // Interpret Synchronet Ctrl-A codes
+    bool        attrWWIV;           // Interpret WWIV heart codes
+    bool        attrCelerity;       // Interpret Celerity pipe codes
+    bool        attrRenegade;       // Interpret Renegade pipe codes
+    bool        attrPCBoard;        // Interpret PCBoard/Wildcat @X codes
+
+    // Search settings
+    bool        useRegexSearch;     // Treat search text as regex (vs substring)
 
     // Message list settings
     bool        lightbarMode;       // Use lightbar (vs traditional) list
@@ -49,6 +59,7 @@ struct Settings
     std::string dctThemeFile;       // Selected DCT theme filename
 
     // General settings
+    bool        showSplashScreen;   // Show the splash screen on startup
     std::string lastDirectory;      // Last browsed directory
     std::string lastQwkFile;        // Last opened QWK file
     std::string userName;           // User's name for replies

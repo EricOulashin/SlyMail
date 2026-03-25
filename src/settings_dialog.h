@@ -76,7 +76,10 @@ enum SettingID
     SET_SHOW_TEAR,
     SET_USE_SCROLLBAR,
     SET_STRIP_ANSI,
+    SET_ATTR_CODE_TOGGLES,
+    SET_REGEX_SEARCH,
     SET_REVERSE_ORDER,
+    SET_SPLASH_SCREEN,
     SET_USER_NAME,
     SET_REPLY_DIR,
     SET_COUNT
@@ -98,5 +101,6 @@ std::vector<std::string> findThemeFiles(const std::string& baseDir, const std::s
 std::string showThemeSelector(const std::string& baseDir, EditorStyle currentStyle);
 bool showEditorSettings(Settings& settings, const std::string& baseDir);
 bool showSettingsDialog(Settings& settings, const std::string& baseDir = "");
+bool showAttrCodeToggles(Settings& settings);
 
 #endif // SLYMAIL_SETTINGS_DIALOG_H
