@@ -97,6 +97,7 @@
     <ClCompile Include="..\src\search.cpp" />
     <ClCompile Include="..\src\text_input.cpp" />
     <ClCompile Include="..\src\text_utils.cpp" />
+    <ClCompile Include="..\src\ansi_render.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\terminal.h" />
@@ -121,6 +122,7 @@
     <ClInclude Include="..\src\search.h" />
     <ClInclude Include="..\src\text_input.h" />
     <ClInclude Include="..\src\text_utils.h" />
+    <ClInclude Include="..\src\ansi_render.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

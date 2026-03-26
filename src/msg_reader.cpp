@@ -1,6 +1,7 @@
 #include "msg_reader.h"
 #include "bbs_colors.h"
 #include "utf8_util.h"
+#include "ansi_render.h"
 
 using std::string;
 using std::vector;
@@ -538,8 +539,10 @@ void showHeaderInfo(const QwkMessage& msg, const string& confName,
         // Scrollbar
         if (settings.useScrollbar && totalLines > bodyHeight)
         {
-            drawScrollbar(bodyTop, bodyHeight, scrollPos,
-                         std::max(1, totalLines - bodyHeight + 1),
+            int scrollMax = std::max(1, totalLines - bodyHeight);
+            int sbPos = (totalLines <= 1) ? 0
+                      : (scrollPos * (totalLines - 1)) / scrollMax;
+            drawScrollbar(bodyTop, bodyHeight, sbPos, totalLines,
                          tAttr(TC_BLACK, TC_BLACK, true),
                          tAttr(TC_WHITE, TC_BLACK, true));
         }
@@ -1056,11 +1059,28 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
                                 PendingVote* lastVote)
 {
     int displayWidth = settings.useScrollbar ? g_term->getCols() - 2 : g_term->getCols() - 1;
+
+    // Check if this message is ANSI art (uses cursor positioning codes)
+    bool isAnsi = !settings.stripAnsi && isAnsiArt(msg.body);
+    vector<AnsiLine> ansiScreenLines; // Only populated for ANSI art
+    // ANSI art uses a standard 80-column virtual screen
+    int ansiRenderWidth = 80;
+
     // For poll messages, show Synchronet-style poll results instead of body text
     vector<string> bodyLines;
     if (msg.isPoll && votingData)
     {
         bodyLines = buildPollDisplayLines(msg, votingData, displayWidth);
+    }
+    else if (isAnsi)
+    {
+        // Render ANSI art through the virtual screen renderer at 80 cols
+        ansiScreenLines = renderAnsiToScreen(msg.body, ansiRenderWidth);
+        // Create placeholder bodyLines for scrolling (one per screen row)
+        for (size_t r = 0; r < ansiScreenLines.size(); ++r)
+        {
+            bodyLines.push_back(""); // Actual rendering uses ansiScreenLines
+        }
     }
     else
     {
@@ -1097,8 +1117,39 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
         for (int i = 0; i < bodyHeight && (scrollPos + i) < totalLines; ++i)
         {
             int lineIdx = scrollPos + i;
-            const auto& line = bodyLines[lineIdx];
             int row = bodyTop + i;
+
+            // ANSI art: render from pre-rendered screen buffer cell-by-cell
+            if (isAnsi && lineIdx < static_cast<int>(ansiScreenLines.size()))
+            {
+                const auto& ansiLine = ansiScreenLines[lineIdx];
+                int renderCols = std::min(displayWidth, static_cast<int>(ansiLine.cells.size()));
+                for (int c = 0; c < renderCols; ++c)
+                {
+                    const auto& cell = ansiLine.cells[c];
+                    g_term->setAttr(cell.attr);
+                    // Use putCP437 for high bytes (128-255) since ANSI art
+                    // uses CP437 block/shade characters extensively
+                    uint8_t uch = static_cast<uint8_t>(cell.ch);
+                    if (uch >= 128)
+                    {
+                        g_term->putCP437(row, c, uch);
+                    }
+                    else
+                    {
+                        g_term->putCh(row, c, cell.ch);
+                    }
+                }
+                // Pad any remaining columns
+                if (renderCols < displayWidth)
+                {
+                    g_term->setAttr(tAttr(TC_WHITE, TC_BLACK, false));
+                    g_term->fillRegion(row, renderCols, displayWidth, ' ');
+                }
+                continue;
+            }
+
+            const auto& line = bodyLines[lineIdx];
 
             // Check for poll answer backfill marker: \x01P<pct>\x01
             if (line.size() > 6 && line[0] == '\x01' && line[1] == 'P' && line[5] == '\x01')
@@ -1173,8 +1224,10 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
         // Scrollbar
         if (settings.useScrollbar && totalLines > bodyHeight)
         {
-            drawScrollbar(bodyTop, bodyHeight, scrollPos,
-                         std::max(1, totalLines - bodyHeight + 1),
+            int scrollMax = std::max(1, totalLines - bodyHeight);
+            int sbPos = (totalLines <= 1) ? 0
+                      : (scrollPos * (totalLines - 1)) / scrollMax;
+            drawScrollbar(bodyTop, bodyHeight, sbPos, totalLines,
                          tAttr(TC_BLACK, TC_BLACK, true),
                          tAttr(TC_WHITE, TC_BLACK, true));
         }

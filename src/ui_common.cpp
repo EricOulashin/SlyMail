@@ -217,23 +217,45 @@ void drawScrollbar(int topY, int height, int position, int total,
         return;
     }
 
+    // Draw the track background
     g_term->setAttr(bgAttr);
     for (int i = 0; i < height; ++i)
     {
         g_term->putCP437(topY + i, col, CP437_MEDIUM_SHADE);
     }
 
-    int blockPos = 0;
-    if (total > 1)
+    // Thumb size is proportional to the visible portion of the content.
+    // If the viewport shows half the content, the thumb covers half the track.
+    int thumbSize = (height * height) / total;
+    if (thumbSize < 1)
     {
-        blockPos = (position * (height - 1)) / (total - 1);
+        thumbSize = 1;
     }
-    if (blockPos >= height)
+    // When content is scrollable, the thumb must be at least 1 cell shorter
+    // than the track so it has room to move and indicate scroll position.
+    if (total > height && thumbSize >= height)
     {
-        blockPos = height - 1;
+        thumbSize = height - 1;
     }
+
+    // Thumb position: map the scroll position onto the available track range
+    int trackRange = height - thumbSize;
+    int thumbPos = 0;
+    if (total > 1 && trackRange > 0)
+    {
+        thumbPos = (position * trackRange) / (total - 1);
+    }
+    if (thumbPos + thumbSize > height)
+    {
+        thumbPos = height - thumbSize;
+    }
+
+    // Draw the thumb
     g_term->setAttr(blockAttr);
-    g_term->putCP437(topY + blockPos, col, CP437_LIGHT_SHADE);
+    for (int i = 0; i < thumbSize; ++i)
+    {
+        g_term->putCP437(topY + thumbPos + i, col, CP437_FULL_BLOCK);
+    }
 }
 
 // ---- String helpers ----
@@ -339,6 +361,72 @@ string getStringInput(int y, int x, int maxLen,
             cursorPos = static_cast<int>(result.size());
         }
         else if (ch >= 32 && ch < 127 && static_cast<int>(result.size()) < maxLen)
+        {
+            result.insert(cursorPos, 1, static_cast<char>(ch));
+            ++cursorPos;
+        }
+    }
+    g_term->setCursorVisible(false);
+    return result;
+}
+
+string getNumericInput(int y, int x, int maxLen,
+                       const TermAttr& attr)
+{
+    string result;
+    int cursorPos = 0;
+
+    g_term->setCursorVisible(true);
+    for (;;)
+    {
+        g_term->setAttr(attr);
+        string display = padStr(result, maxLen);
+        g_term->printStr(y, x, display);
+        g_term->moveTo(y, x + cursorPos);
+        g_term->refresh();
+
+        int ch = g_term->getKey();
+        if (ch == TK_ENTER)
+        {
+            break;
+        }
+        else if (ch == TK_ESCAPE || ch == TK_CTRL_C)
+        {
+            g_term->setCursorVisible(false);
+            return "";
+        }
+        else if (ch == TK_BACKSPACE || ch == TK_BACKSPACE_8)
+        {
+            if (cursorPos > 0)
+            {
+                result.erase(cursorPos - 1, 1);
+                --cursorPos;
+            }
+        }
+        else if (ch == TK_DELETE)
+        {
+            if (cursorPos < static_cast<int>(result.size()))
+            {
+                result.erase(cursorPos, 1);
+            }
+        }
+        else if (ch == TK_LEFT)
+        {
+            if (cursorPos > 0) --cursorPos;
+        }
+        else if (ch == TK_RIGHT)
+        {
+            if (cursorPos < static_cast<int>(result.size())) ++cursorPos;
+        }
+        else if (ch == TK_HOME)
+        {
+            cursorPos = 0;
+        }
+        else if (ch == TK_END)
+        {
+            cursorPos = static_cast<int>(result.size());
+        }
+        else if (ch >= '0' && ch <= '9' && static_cast<int>(result.size()) < maxLen)
         {
             result.insert(cursorPos, 1, static_cast<char>(ch));
             ++cursorPos;

@@ -150,8 +150,8 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
 
             drawDDHelpBar(ROWS - 1,
                 "Up/Dn/PgUp/PgDn/HOME/END, ",
-                {{'E', "nter area"}, {'/', "Search"}, {'O', "pen file"},
-                 {'S', "ettings"}, {'Q', "uit"}, {'?', ""}});
+                {{'E', "nter area"}, {'/', "Search"}, {'G', "o to #"},
+                 {'O', "pen file"}, {'S', "ettings"}, {'Q', "uit"}, {'?', ""}});
 
             // Show filter indicator if active
             if (isFiltered)
@@ -270,6 +270,35 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
             case 'S':
             case TK_CTRL_U:
                 return ConfListResult::Settings;
+            case 'g':
+            case 'G':
+            {
+                printAt(ROWS - 1, 0, "Go to conf #: ",
+                        tAttr(TC_WHITE, TC_BLACK, true));
+                g_term->clearToEol();
+                string numStr = getNumericInput(ROWS - 1, 14, 8,
+                    tAttr(TC_WHITE, TC_BLACK, true));
+                if (!numStr.empty())
+                {
+                    try
+                    {
+                        int targetNum = std::stoi(numStr);
+                        for (int j = 0; j < totalConfs; ++j)
+                        {
+                            if (packet.conferences[filteredIdx[j]].number == targetNum)
+                            {
+                                selected = j;
+                                break;
+                            }
+                        }
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+                needFullRedraw = true;
+                break;
+            }
             case 'q':
             case 'Q':
                 if (isFiltered)
@@ -660,9 +689,8 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
             {
                 printAt(ROWS - 1, 0, "Go to msg #: ",
                         tAttr(TC_WHITE, TC_BLACK, true));
-                g_term->moveTo(ROWS - 1, 13);
                 g_term->clearToEol();
-                string numStr = getStringInput(ROWS - 1, 14, 8, "",
+                string numStr = getNumericInput(ROWS - 1, 14, 8,
                     tAttr(TC_WHITE, TC_BLACK, true));
                 if (!numStr.empty())
                 {

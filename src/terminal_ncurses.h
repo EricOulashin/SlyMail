@@ -4,7 +4,15 @@
 #ifndef SLYMAIL_WINDOWS
 
 #include "terminal.h"
+
+// Use the wide-character ncurses library for proper UTF-8 / Unicode support.
+// This is required for correct rendering of CP437 characters (block elements,
+// box drawing, etc.) in UTF-8 terminals.
+#if __has_include(<ncursesw/ncurses.h>)
+#include <ncursesw/ncurses.h>
+#else
 #include <ncurses.h>
+#endif
 
 // ============================================================
 // NCursesTerminal - ncurses-based terminal implementation
@@ -58,9 +66,7 @@ public:
 
 private:
     attr_t m_currentAttr;
-
-    // Map CP437 character codes to ncurses ACS character types
-    chtype mapCP437toACS(int cp437) const;
+    bool   m_utf8Locale; // True when the terminal locale uses UTF-8 encoding
 
     // Map ncurses key codes to platform-independent TermKey values
     int mapKey(int ch) const;

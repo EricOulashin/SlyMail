@@ -16,7 +16,7 @@ HEADERS = $(SRCDIR)/terminal.h $(SRCDIR)/terminal_ncurses.h $(SRCDIR)/terminal_w
           $(SRCDIR)/msg_editor.h $(SRCDIR)/settings_dialog.h $(SRCDIR)/theme.h \
           $(SRCDIR)/bbs_colors.h $(SRCDIR)/utf8_util.h $(SRCDIR)/voting.h \
           $(SRCDIR)/remote_systems.h $(SRCDIR)/search.h $(SRCDIR)/text_input.h \
-          $(SRCDIR)/text_utils.h
+          $(SRCDIR)/text_utils.h $(SRCDIR)/ansi_render.h
 
 # Object files
 OBJDIR = obj
@@ -27,7 +27,7 @@ SLYMAIL_OBJECTS = $(OBJDIR)/main.o $(OBJDIR)/qwk.o $(OBJDIR)/settings.o $(OBJDIR
                   $(OBJDIR)/ui_common.o $(OBJDIR)/theme.o $(OBJDIR)/file_browser.o $(OBJDIR)/msg_list.o \
                   $(OBJDIR)/bbs_colors.o $(OBJDIR)/utf8_util.o $(OBJDIR)/voting.o \
                   $(OBJDIR)/remote_systems.o $(OBJDIR)/search.o $(OBJDIR)/text_input.o \
-                  $(OBJDIR)/text_utils.o
+                  $(OBJDIR)/text_utils.o $(OBJDIR)/ansi_render.o
 
 # Config program objects
 CONFIG_OBJECTS = $(OBJDIR)/config.o $(OBJDIR)/settings.o $(OBJDIR)/settings_dialog.o \
@@ -46,23 +46,28 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -I$(SRCDIR)
 # OS-specific: terminal implementation and link flags
 ifeq ($(UNAME_S),Linux)
     TERM_SRC = $(SRCDIR)/terminal_ncurses.cpp
-    LDFLAGS = -lncurses -ltinfo
+    CXXFLAGS += -D_XOPEN_SOURCE_EXTENDED
+    LDFLAGS = -lncursesw -ltinfo
 endif
 ifeq ($(UNAME_S),Darwin)
     TERM_SRC = $(SRCDIR)/terminal_ncurses.cpp
-    LDFLAGS = -lncurses
+    CXXFLAGS += -D_XOPEN_SOURCE_EXTENDED
+    LDFLAGS = -lncursesw
 endif
 ifeq ($(UNAME_S),FreeBSD)
     TERM_SRC = $(SRCDIR)/terminal_ncurses.cpp
-    LDFLAGS = -lncurses
+    CXXFLAGS += -D_XOPEN_SOURCE_EXTENDED
+    LDFLAGS = -lncursesw
 endif
 ifeq ($(UNAME_S),NetBSD)
     TERM_SRC = $(SRCDIR)/terminal_ncurses.cpp
-    LDFLAGS = -lncurses
+    CXXFLAGS += -D_XOPEN_SOURCE_EXTENDED
+    LDFLAGS = -lncursesw
 endif
 ifeq ($(UNAME_S),OpenBSD)
     TERM_SRC = $(SRCDIR)/terminal_ncurses.cpp
-    LDFLAGS = -lncurses
+    CXXFLAGS += -D_XOPEN_SOURCE_EXTENDED
+    LDFLAGS = -lncursesw
 endif
 
 # Windows (MinGW/MSYS2)
@@ -167,6 +172,10 @@ $(OBJDIR)/text_input.o: $(SRCDIR)/text_input.cpp $(SRCDIR)/text_input.h
 
 # Compile text_utils.cpp
 $(OBJDIR)/text_utils.o: $(SRCDIR)/text_utils.cpp $(SRCDIR)/text_utils.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Compile ansi_render.cpp
+$(OBJDIR)/ansi_render.o: $(SRCDIR)/ansi_render.cpp $(SRCDIR)/ansi_render.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Test executables

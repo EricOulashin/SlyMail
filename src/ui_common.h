@@ -57,6 +57,11 @@ std::string getStringInput(int y, int x, int maxLen,
                            const std::string& initial,
                            const TermAttr& attr);
 
+// Like getStringInput, but only allows digit characters (0-9).
+// Returns the entered string, or empty string if cancelled.
+std::string getNumericInput(int y, int x, int maxLen,
+                            const TermAttr& attr);
+
 // Like getStringInput, but displays '*' characters instead of the actual text.
 // Returns the actual (unmasked) text, or empty string if cancelled.
 std::string getPasswordInput(int y, int x, int maxLen,
