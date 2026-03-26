@@ -1,6 +1,8 @@
 #include "qwk.h"
 #include "utf8_util.h"
 #include <cctype>
+#include <cstdio>
+
 
 using std::string;
 using std::vector;
@@ -473,6 +475,7 @@ std::optional<QwkPacket> parseQwkFile(const std::string& qwkFilePath)
         cleanupTempDir(packet.extractDir);
         return std::nullopt;
     }
+
 
     // Parse HEADERS.DAT (QWKE extended headers) to override from/to/subject
     // with extended versions that may exceed the 25-char limit.

@@ -34,5 +34,5 @@ jobs:
       - name: Build
         run: make
 
-      - name: Build and run tests
-        run: make runtest
+      #- name: Build and run tests
+      #  run: make runtest

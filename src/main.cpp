@@ -278,6 +278,8 @@ int main(int argc, char* argv[])
 
             // Clear pending replies for new packet
             pendingReplies.clear();
+
+
         }
 
         // Conference list loop

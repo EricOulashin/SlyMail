@@ -1102,22 +1102,40 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
     g_term->clear();
     g_term->refresh();
 
+    bool needFullRedraw = true;  // header + help bar need drawing
+    int cachedHeaderHeight = 0;
+
     while (true)
     {
-        g_term->clear();
+        int COLS = g_term->getCols();
+        int ROWS = g_term->getRows();
 
-        // Draw header
-        int headerHeight = drawMessageHeader(msg, confName, "SlyMail",
-                                              msgIndex, totalMsgs);
+        if (needFullRedraw)
+        {
+            g_term->clear();
+            cachedHeaderHeight = drawMessageHeader(msg, confName, "SlyMail",
+                                                    msgIndex, totalMsgs);
+            drawReaderHelpBar(ROWS - 1);
+            needFullRedraw = false;
+        }
 
         // Body area
+        int headerHeight = cachedHeaderHeight;
         int bodyTop = headerHeight;
-        int bodyHeight = g_term->getRows() - headerHeight - 1; // -1 for help bar
+        int bodyHeight = ROWS - headerHeight - 1; // -1 for help bar
 
-        for (int i = 0; i < bodyHeight && (scrollPos + i) < totalLines; ++i)
+        for (int i = 0; i < bodyHeight; ++i)
         {
             int lineIdx = scrollPos + i;
             int row = bodyTop + i;
+
+            if (lineIdx >= totalLines)
+            {
+                // Past end of content: clear this row
+                g_term->setAttr(tAttr(TC_BLACK, TC_BLACK, false));
+                g_term->fillRegion(row, 0, COLS, ' ');
+                continue;
+            }
 
             // ANSI art: render from pre-rendered screen buffer cell-by-cell
             if (isAnsi && lineIdx < static_cast<int>(ansiScreenLines.size()))
@@ -1232,9 +1250,6 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
                          tAttr(TC_WHITE, TC_BLACK, true));
         }
 
-        // Help bar
-        drawReaderHelpBar(g_term->getRows() - 1);
-
         g_term->refresh();
 
         int ch = g_term->getKey();
@@ -1278,7 +1293,8 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
                 return MsgReadResult::NextMsg;
             case 'h': case 'H':
                 showHeaderInfo(msg, confName, msgIndex, totalMsgs, settings);
-                break;  // After closing headers, loop redraws the message
+                needFullRedraw = true;
+                break;
             case 'r': case 'R':
                 return MsgReadResult::Reply;
             case 'f': case 'F':
@@ -1295,6 +1311,7 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
                 {
                     messageDialog("Attachments", "This message has no file attachments.");
                 }
+                needFullRedraw = true;
                 break;
             case 'v': case 'V':
             {
@@ -1308,6 +1325,7 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
                     }
                     return MsgReadResult::Vote;
                 }
+                needFullRedraw = true;
                 break;
             }
             case 's': case 'S':
@@ -1357,6 +1375,7 @@ MsgReadResult showMessageReader(const QwkMessage& msg,
                 printAt(r, 2, "Hit a key", tAttr(TC_GREEN, TC_BLACK, false));
                 g_term->refresh();
                 g_term->getKey();
+                needFullRedraw = true;
                 break;
             }
             case TK_ENTER:
