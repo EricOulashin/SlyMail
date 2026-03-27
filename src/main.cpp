@@ -16,10 +16,12 @@
 #include "program_info.h"
 #include "voting.h"
 #include "remote_systems.h"
+#include "text_utils.h"
 
 #include <ctime>
 #include <optional>
 #include <fstream>
+#include <sstream>
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
@@ -107,9 +109,92 @@ static bool isVersionArg(const char* arg)
         || strcmp(arg, "--version") == 0;
 }
 
+// Build quote lines from a message for the external editor.
+// Replicates the quoting logic from MessageEditor::prepareQuotes.
+static string buildQuoteText(const QwkMessage& msg, const Settings& settings)
+{
+    // Build quote prefix
+    string prefix;
+    if (settings.quoteWithInitials)
+    {
+        string initials;
+        if (!msg.from.empty())
+        {
+            auto spacePos = msg.from.rfind(' ');
+            if (spacePos != string::npos && spacePos + 1 < msg.from.size())
+            {
+                initials += static_cast<char>(toupper(static_cast<unsigned char>(msg.from[0])));
+                initials += static_cast<char>(toupper(static_cast<unsigned char>(msg.from[spacePos + 1])));
+            }
+            else
+            {
+                initials += static_cast<char>(toupper(static_cast<unsigned char>(msg.from[0])));
+                if (msg.from.size() >= 2)
+                    initials += static_cast<char>(toupper(static_cast<unsigned char>(msg.from[1])));
+            }
+        }
+        if (settings.indentQuoteInitials)
+            prefix = " " + initials + "> ";
+        else
+            prefix = initials + "> ";
+    }
+    else
+    {
+        prefix = settings.quotePrefix;
+    }
+
+    // Build quote lines with prefix
+    vector<string> rawQuoteLines;
+    std::istringstream stream(msg.body);
+    string line;
+    while (std::getline(stream, line))
+    {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        // Skip kludge lines
+        if (!line.empty() && line[0] == '@') continue;
+        if (line.find("SEEN-BY:") == 0) continue;
+        if (line.find("PATH:") == 0) continue;
+        // Trim leading spaces if setting enabled
+        if (settings.trimQuoteSpaces)
+        {
+            size_t start = line.find_first_not_of(" \t");
+            if (start != string::npos)
+                line = line.substr(start);
+            else
+                line.clear();
+        }
+        rawQuoteLines.push_back(prefix + line);
+    }
+
+    // Re-wrap quote lines to fit within the configured width, matching
+    // the built-in editor's prepareQuotes behavior
+    vector<string> finalLines;
+    int quoteMaxWidth = settings.quoteLineWidth;
+    if (quoteMaxWidth <= 0) quoteMaxWidth = 79;
+    if (settings.wrapQuoteLines)
+        finalLines = wrapQuoteLines(rawQuoteLines, quoteMaxWidth);
+    else
+        finalLines = rawQuoteLines;
+
+    // Join into a single string
+    string result;
+    for (size_t i = 0; i < finalLines.size(); ++i)
+    {
+        result += finalLines[i];
+        result += '\n';
+    }
+    // Add an empty line after the quote block for the user to start typing
+    if (!result.empty())
+        result += '\n';
+    return result;
+}
+
 // Run an external editor to compose a message.
+// If initialContent is non-empty, it is written to the temp file before launching the editor.
 // Returns the message body text, or empty string if aborted.
-static string runExternalEditor(const string& editorPath)
+static string runExternalEditor(const string& editorPath,
+                                const string& initialContent = "")
 {
     namespace fs = std::filesystem;
 
@@ -117,13 +202,17 @@ static string runExternalEditor(const string& editorPath)
     string dataDir = getSlyMailDataDir();
     string tmpFile = dataDir + PATH_SEP_STR + "slymail_edit.tmp";
 
-    // Create the empty temp file
+    // Create the temp file with optional initial content (e.g. quote lines)
     {
         std::ofstream ofs(tmpFile, std::ios::trunc);
         if (!ofs.is_open())
         {
             messageDialog("Error", "Failed to create temporary file.");
             return "";
+        }
+        if (!initialContent.empty())
+        {
+            ofs << initialContent;
         }
     }
 
@@ -182,7 +271,22 @@ static EditorResult tryExternalOrBuiltinReply(
     Settings& settings,
     const string& baseDir)
 {
-    string body = runExternalEditor(settings.externalEditor);
+    // Determine whether to include quote lines
+    string initialContent;
+    if (settings.externalEditorQuoting == ExtQuoteMode::Always)
+    {
+        initialContent = buildQuoteText(origMsg, settings);
+    }
+    else if (settings.externalEditorQuoting == ExtQuoteMode::Prompt)
+    {
+        if (confirmDialog("Include quoted text from original message?"))
+        {
+            initialContent = buildQuoteText(origMsg, settings);
+        }
+    }
+    // ExtQuoteMode::Never: initialContent stays empty
+
+    string body = runExternalEditor(settings.externalEditor, initialContent);
     if (body.empty())
     {
         // Check if the editor actually failed to run (not just empty file)

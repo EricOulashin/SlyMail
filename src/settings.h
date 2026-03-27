@@ -11,6 +11,14 @@ enum class EditorStyle
     Random   // Randomly choose Ice or Dct on each edit
 };
 
+// External editor quoting mode for replies
+enum class ExtQuoteMode
+{
+    Always,  // Always include quote lines when replying with external editor
+    Prompt,  // Ask the user whether to include quote lines
+    Never    // Never include quote lines when replying with external editor
+};
+
 // The settings INI filename
 extern const char* SETTINGS_FILENAME;
 
@@ -66,6 +74,7 @@ struct Settings
     std::string replyDir;           // Directory for REP packets
     std::string externalEditor;     // Path to external editor program
     bool        useExternalEditor;  // Use external editor instead of built-in
+    ExtQuoteMode externalEditorQuoting; // Quoting mode when replying with external editor
 
     // Section order as read from the INI file (preserved on save)
     std::vector<std::string> sectionOrder;

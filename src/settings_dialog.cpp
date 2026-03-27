@@ -915,7 +915,7 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
     if (dlgW > g_term->getCols() - 4) dlgW = g_term->getCols() - 4;
 
     int visibleItems = g_term->getRows() - 10;
-    const int itemCount = 11;
+    const int itemCount = 12;
     if (visibleItems > itemCount) visibleItems = itemCount;
     int dlgH = visibleItems + 5;
     int dlgY = (g_term->getRows() - dlgH) / 2;
@@ -962,6 +962,13 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                          false, false, SET_EXTERNAL_EDITOR});
         items.push_back({"Use external editor",
                          settings.useExternalEditor ? "Y" : "N", true, false, SET_USE_EXTERNAL_EDITOR});
+        {
+            string qmStr = "Prompt";
+            if (settings.externalEditorQuoting == ExtQuoteMode::Always) qmStr = "Always";
+            else if (settings.externalEditorQuoting == ExtQuoteMode::Never) qmStr = "Never";
+            items.push_back({"External editor quoting",
+                             qmStr, false, true, SET_EXT_EDITOR_QUOTING});
+        }
 
         // Clamp scroll
         if (selected < scrollOffset) scrollOffset = selected;
@@ -1192,6 +1199,25 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                         changed = true;
                         needFullRedraw = true;
                         break;
+                    case SET_EXT_EDITOR_QUOTING:
+                        // Cycle: Always → Prompt → Never → Always
+                        if (settings.externalEditorQuoting == ExtQuoteMode::Always)
+                            settings.externalEditorQuoting = ExtQuoteMode::Prompt;
+                        else if (settings.externalEditorQuoting == ExtQuoteMode::Prompt)
+                            settings.externalEditorQuoting = ExtQuoteMode::Never;
+                        else
+                            settings.externalEditorQuoting = ExtQuoteMode::Always;
+                        changed = true;
+                        needFullRedraw = true;
+                        break;
+                }
+                break;
+            case TK_DELETE:
+                if (items[selected].id == SET_EXTERNAL_EDITOR)
+                {
+                    settings.externalEditor.clear();
+                    changed = true;
+                    needFullRedraw = true;
                 }
                 break;
             case 's':

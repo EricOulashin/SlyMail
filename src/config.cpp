@@ -568,10 +568,11 @@ static bool editGeneralSettings(Settings& settings)
     };
 
     int strItemCount = static_cast<int>(items.size());
-    // Toggle items: use external editor, splash screen
-    int itemCount = strItemCount + 2;
+    // Non-string items: use external editor (toggle), ext editor quoting (cycle), splash screen (toggle)
+    int itemCount = strItemCount + 3;
     int useExtEditorIdx = strItemCount;
-    int splashIdx = strItemCount + 1;
+    int extQuotingIdx = strItemCount + 1;
+    int splashIdx = strItemCount + 2;
     int selected = 0;
     bool changed = false;
 
@@ -631,6 +632,18 @@ static bool editGeneralSettings(Settings& settings)
                     (items[i].value->empty() ? "(not set)" : *(items[i].value));
                 printAt(y, dlgX + 2, truncateStr(display, dlgW - 4),
                         isSel ? selAttr : itemAttr);
+            }
+            else if (i == extQuotingIdx)
+            {
+                // Cycling choice item
+                TermAttr lbl = isSel ? selAttr : itemAttr;
+                printAt(y, dlgX + 2, "External editor quoting", lbl);
+                string qmStr = "Prompt";
+                if (settings.externalEditorQuoting == ExtQuoteMode::Always) qmStr = "Always";
+                else if (settings.externalEditorQuoting == ExtQuoteMode::Never) qmStr = "Never";
+                TermAttr valA = isSel ? selAttr : tAttr(TC_GREEN, TC_BLACK, true);
+                int valCol = dlgX + dlgW - static_cast<int>(qmStr.size()) - 3;
+                printAt(y, valCol, qmStr, valA);
             }
             else
             {
@@ -710,6 +723,17 @@ static bool editGeneralSettings(Settings& settings)
                     settings.useExternalEditor = !settings.useExternalEditor;
                     changed = true;
                 }
+                else if (selected == extQuotingIdx)
+                {
+                    // Cycle: Always → Prompt → Never → Always
+                    if (settings.externalEditorQuoting == ExtQuoteMode::Always)
+                        settings.externalEditorQuoting = ExtQuoteMode::Prompt;
+                    else if (settings.externalEditorQuoting == ExtQuoteMode::Prompt)
+                        settings.externalEditorQuoting = ExtQuoteMode::Never;
+                    else
+                        settings.externalEditorQuoting = ExtQuoteMode::Always;
+                    changed = true;
+                }
                 else if (selected == 1) // Reply packet directory — use directory chooser
                 {
                     string startDir = settings.replyDir;
@@ -761,6 +785,13 @@ static bool editGeneralSettings(Settings& settings)
                 }
                 break;
             }
+            case TK_DELETE:
+                if (selected == 2) // External editor
+                {
+                    settings.externalEditor.clear();
+                    changed = true;
+                }
+                break;
             case TK_ESCAPE:
             case 'q':
             case 'Q':

@@ -64,6 +64,7 @@ Settings::Settings()
     , replyDir("")
     , externalEditor("")
     , useExternalEditor(false)
+    , externalEditorQuoting(ExtQuoteMode::Prompt)
 {
 }
 
@@ -181,6 +182,12 @@ bool Settings::load()
         else if (key == "replyDir")          { replyDir = val; }
         else if (key == "externalEditor")   { externalEditor = val; }
         else if (key == "useExternalEditor") { useExternalEditor = (val == "true" || val == "1"); }
+        else if (key == "externalEditorQuoting")
+        {
+            if (val == "Always" || val == "always") externalEditorQuoting = ExtQuoteMode::Always;
+            else if (val == "Never" || val == "never") externalEditorQuoting = ExtQuoteMode::Never;
+            else externalEditorQuoting = ExtQuoteMode::Prompt;
+        }
     }
     f.close();
     return true;
@@ -222,6 +229,13 @@ bool Settings::save() const
             f << "externalEditor=" << externalEditor << "\n";
             f << "\n; Use the external editor instead of the built-in editor\n";
             f << "useExternalEditor=" << (useExternalEditor ? "true" : "false") << "\n";
+            f << "\n; Quoting mode when replying with the external editor: Always, Prompt, or Never\n";
+            {
+                string qm = "Prompt";
+                if (externalEditorQuoting == ExtQuoteMode::Always) qm = "Always";
+                else if (externalEditorQuoting == ExtQuoteMode::Never) qm = "Never";
+                f << "externalEditorQuoting=" << qm << "\n";
+            }
         }
         else if (sec == "Themes")
         {
