@@ -52,7 +52,7 @@ endif
 ifeq ($(UNAME_S),Darwin)
     TERM_SRC = $(SRCDIR)/terminal_ncurses.cpp
     CXXFLAGS += -D_XOPEN_SOURCE_EXTENDED
-    LDFLAGS = -lncursesw
+    LDFLAGS = -lncurses
 endif
 ifeq ($(UNAME_S),FreeBSD)
     TERM_SRC = $(SRCDIR)/terminal_ncurses.cpp
