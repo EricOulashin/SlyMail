@@ -782,6 +782,12 @@ int main(int argc, char* argv[])
                                 break;
                             case MsgListResult::Settings:
                                 showSettingsDialog(settings, baseDir);
+                                // If onlyShowAreasWithNewMail was enabled and this
+                                // conference has 0 messages, back out to the conference list
+                                if (settings.onlyShowAreasWithNewMail && conf.messages.empty())
+                                {
+                                    inMsgList = false;
+                                }
                                 break;
                             case MsgListResult::OpenFile:
                                 inMsgList = false;

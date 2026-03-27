@@ -93,6 +93,7 @@ static bool editReaderSettings(Settings& settings)
         {"Show kludge/control lines (@MSGID, @REPLY, etc.)", &settings.showKludgeLines},
         {"Show tear lines and origin lines",                  &settings.showTearLine},
         {"Show scrollbar in message reader",                  &settings.useScrollbar},
+        {"Only show areas with new mail",                     &settings.onlyShowAreasWithNewMail},
         {"Strip ANSI codes from messages",                    &settings.stripAnsi},
         {"Use lightbar navigation in message list",           &settings.lightbarMode},
         {"Show messages in reverse order (newest first)",      &settings.reverseOrder},

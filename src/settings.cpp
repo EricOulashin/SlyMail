@@ -48,6 +48,7 @@ Settings::Settings()
     , showKludgeLines(false)
     , showTearLine(true)
     , useScrollbar(true)
+    , onlyShowAreasWithNewMail(false)
     , stripAnsi(false)
     , attrSynchronet(true)
     , attrWWIV(true)
@@ -164,6 +165,7 @@ bool Settings::load()
         else if (key == "showKludgeLines")   { showKludgeLines = (val == "true" || val == "1"); }
         else if (key == "showTearLine")      { showTearLine = (val == "true" || val == "1"); }
         else if (key == "useScrollbar")      { useScrollbar = (val == "true" || val == "1"); }
+        else if (key == "onlyShowAreasWithNewMail") { onlyShowAreasWithNewMail = (val == "true" || val == "1"); }
         else if (key == "stripAnsi")         { stripAnsi = (val == "true" || val == "1"); }
         else if (key == "attrSynchronet")     { attrSynchronet = (val == "true" || val == "1"); }
         else if (key == "attrWWIV")          { attrWWIV = (val == "true" || val == "1"); }
@@ -255,6 +257,8 @@ bool Settings::save() const
             f << "showTearLine=" << (showTearLine ? "true" : "false") << "\n";
             f << "\n; Show a scrollbar indicator on the right side of the message reader\n";
             f << "useScrollbar=" << (useScrollbar ? "true" : "false") << "\n";
+            f << "\n; Only show conferences that have messages (hide empty conferences)\n";
+            f << "onlyShowAreasWithNewMail=" << (onlyShowAreasWithNewMail ? "true" : "false") << "\n";
             f << "\n; Strip ANSI escape codes from message text\n";
             f << "stripAnsi=" << (stripAnsi ? "true" : "false") << "\n";
             f << "\n; Attribute code toggles - enable/disable interpreting color/attribute\n";

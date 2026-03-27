@@ -4,6 +4,13 @@ All notable changes to SlyMail are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.53] - 2026-03-##
+
+### Added
+- **A setting to only show conferences with new messages**: Addresses[issue 17](https://github.com/EricOulashin/SlyMail/issues/17).
+- **Ability to use an external editor for messages**: Addresses [issue 25](https://github.com/EricOulashin/SlyMail/issues/25).
+
+
 ## [0.52] - 2026-03-26
 
 ### Added

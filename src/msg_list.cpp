@@ -7,7 +7,7 @@ using std::pair;
 
 // Show the conference list
 ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
-                                 const Settings& settings)
+                                 Settings& settings)
 {
     int selected = 0;
     int scrollOffset = 0;
@@ -20,11 +20,20 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
     bool isFiltered = false;
     string searchLabel; // Shown in title when filtered
 
-    // Initialize with all conferences
-    for (int i = 0; i < static_cast<int>(packet.conferences.size()); ++i)
+    // Helper: rebuild filteredIdx based on onlyShowAreasWithNewMail setting
+    auto rebuildFilteredIdx = [&]()
     {
-        filteredIdx.push_back(i);
-    }
+        filteredIdx.clear();
+        for (int i = 0; i < static_cast<int>(packet.conferences.size()); ++i)
+        {
+            if (settings.onlyShowAreasWithNewMail && packet.conferences[i].messages.empty())
+                continue;
+            filteredIdx.push_back(i);
+        }
+    };
+
+    // Initialize conference list
+    rebuildFilteredIdx();
 
     // Restore last selected conference position
     if (selectedConf >= 0)
@@ -303,14 +312,10 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
             case 'Q':
                 if (isFiltered)
                 {
-                    // Clear the search filter
-                    filteredIdx.clear();
-                    for (int i = 0; i < static_cast<int>(packet.conferences.size()); ++i)
-                    {
-                        filteredIdx.push_back(i);
-                    }
+                    // Clear the search filter, but still respect onlyShowAreasWithNewMail
                     isFiltered = false;
                     searchLabel.clear();
+                    rebuildFilteredIdx();
                     selected = 0;
                     scrollOffset = 0;
                     needFullRedraw = true;
@@ -365,7 +370,7 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
 
 // Show the message list for a conference (DDMsgReader-style lightbar)
 MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
-                              const Settings& settings,
+                              Settings& settings,
                               const string& bbsName)
 {
     int selected  = 0;

@@ -32,12 +32,12 @@ enum class MsgListResult
 
 // Show the conference list
 ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
-                                 const Settings& settings);
+                                 Settings& settings);
 
 // Show the message list for a conference (DDMsgReader-style lightbar)
 // Matches DDMsgReader2 screenshot: Msg#, From, To, Subject, Date, Time columns
 MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
-                              const Settings& settings,
+                              Settings& settings,
                               const std::string& bbsName);
 
 #endif // SLYMAIL_MSG_LIST_H

@@ -915,7 +915,7 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
     if (dlgW > g_term->getCols() - 4) dlgW = g_term->getCols() - 4;
 
     int visibleItems = g_term->getRows() - 10;
-    const int itemCount = 12;
+    const int itemCount = 13;
     if (visibleItems > itemCount) visibleItems = itemCount;
     int dlgH = visibleItems + 5;
     int dlgY = (g_term->getRows() - dlgH) / 2;
@@ -944,6 +944,8 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                          settings.showTearLine ? "Y" : "N", true, false, SET_SHOW_TEAR});
         items.push_back({"Scrollbar in reader",
                          settings.useScrollbar ? "Y" : "N", true, false, SET_USE_SCROLLBAR});
+        items.push_back({"Only show areas with new mail",
+                         settings.onlyShowAreasWithNewMail ? "Y" : "N", true, false, SET_ONLY_AREAS_WITH_MAIL});
         items.push_back({"Strip ANSI codes from messages",
                          settings.stripAnsi ? "Y" : "N", true, false, SET_STRIP_ANSI});
         items.push_back({"Attribute code toggles...",
@@ -1129,6 +1131,11 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                         break;
                     case SET_USE_SCROLLBAR:
                         settings.useScrollbar = !settings.useScrollbar;
+                        changed = true;
+                        needFullRedraw = true;
+                        break;
+                    case SET_ONLY_AREAS_WITH_MAIL:
+                        settings.onlyShowAreasWithNewMail = !settings.onlyShowAreasWithNewMail;
                         changed = true;
                         needFullRedraw = true;
                         break;

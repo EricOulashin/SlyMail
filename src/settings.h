@@ -46,6 +46,7 @@ struct Settings
     bool        showKludgeLines;    // Show kludge/control lines
     bool        showTearLine;       // Show tear/origin lines
     bool        useScrollbar;       // Show scrollbar in reader
+    bool        onlyShowAreasWithNewMail; // Only show conferences with messages
 
     // Attribute code toggles (ANSI is always enabled unless stripAnsi is set)
     bool        stripAnsi;          // Strip all ANSI codes from messages
