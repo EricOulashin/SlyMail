@@ -915,7 +915,7 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
     if (dlgW > g_term->getCols() - 4) dlgW = g_term->getCols() - 4;
 
     int visibleItems = g_term->getRows() - 10;
-    const int itemCount = 9;
+    const int itemCount = 11;
     if (visibleItems > itemCount) visibleItems = itemCount;
     int dlgH = visibleItems + 5;
     int dlgY = (g_term->getRows() - dlgH) / 2;
@@ -957,6 +957,11 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
         items.push_back({"Reply packet directory",
                          settings.replyDir.empty() ? "(current dir)" : settings.replyDir,
                          false, false, SET_REPLY_DIR});
+        items.push_back({"External editor",
+                         settings.externalEditor.empty() ? "(not set)" : settings.externalEditor,
+                         false, false, SET_EXTERNAL_EDITOR});
+        items.push_back({"Use external editor",
+                         settings.useExternalEditor ? "Y" : "N", true, false, SET_USE_EXTERNAL_EDITOR});
 
         // Clamp scroll
         if (selected < scrollOffset) scrollOffset = selected;
@@ -1163,6 +1168,30 @@ bool showSettingsDialog(Settings& settings, const string& baseDir)
                         needFullRedraw = true;
                         break;
                     }
+                    case SET_EXTERNAL_EDITOR:
+                    {
+                        string startDir = settings.externalEditor.empty()
+                            ? "/" : settings.externalEditor;
+                        // Extract directory from existing path
+                        auto sep = startDir.find_last_of("/\\");
+                        if (sep != string::npos)
+                        {
+                            startDir = startDir.substr(0, sep);
+                        }
+                        string val = showFileBrowser(startDir, "", "*");
+                        if (!val.empty())
+                        {
+                            settings.externalEditor = val;
+                            changed = true;
+                        }
+                        needFullRedraw = true;
+                        break;
+                    }
+                    case SET_USE_EXTERNAL_EDITOR:
+                        settings.useExternalEditor = !settings.useExternalEditor;
+                        changed = true;
+                        needFullRedraw = true;
+                        break;
                 }
                 break;
             case 's':

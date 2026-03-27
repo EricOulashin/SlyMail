@@ -3115,11 +3115,27 @@ EditorResult editReply(const QwkMessage& origMsg,
     if (result == EditorResult::Saved)
     {
         postSaveProcessing(editor.lines, settings, baseDir);
+        string body = editor.getBody();
+        // Check if the message body is empty (whitespace-only counts as empty)
+        bool isEmpty = true;
+        for (char c : body)
+        {
+            if (c != ' ' && c != '\t' && c != '\n' && c != '\r')
+            {
+                isEmpty = false;
+                break;
+            }
+        }
+        if (isEmpty)
+        {
+            messageDialog("Message Aborted", "Message was empty. Message not posted.");
+            return EditorResult::Aborted;
+        }
         reply.conference = origMsg.conference;
         reply.to = editor.toField;
         reply.from = editor.fromField;
         reply.subject = editor.subjectField;
-        reply.body = editor.getBody();
+        reply.body = body;
         reply.replyToNum = origMsg.number;
         // Set editor identifier string
         string styleStr = (editor.currentStyle == EditorStyle::Ice) ? "Ice style" : "DCT style";
@@ -3180,11 +3196,27 @@ EditorResult editNewMessage(const string& userName,
     if (result == EditorResult::Saved)
     {
         postSaveProcessing(editor.lines, settings, baseDir);
+        string body = editor.getBody();
+        // Check if the message body is empty (whitespace-only counts as empty)
+        bool isEmpty = true;
+        for (char c : body)
+        {
+            if (c != ' ' && c != '\t' && c != '\n' && c != '\r')
+            {
+                isEmpty = false;
+                break;
+            }
+        }
+        if (isEmpty)
+        {
+            messageDialog("Message Aborted", "Message was empty. Message not posted.");
+            return EditorResult::Aborted;
+        }
         reply.conference = confNumber;
         reply.to = editor.toField;
         reply.from = editor.fromField;
         reply.subject = editor.subjectField;
-        reply.body = editor.getBody();
+        reply.body = body;
         reply.replyToNum = 0;
         // Set editor identifier string
         string styleStr = (editor.currentStyle == EditorStyle::Ice) ? "Ice style" : "DCT style";

@@ -564,11 +564,14 @@ static bool editGeneralSettings(Settings& settings)
     {
         {"Your name (for replies)", &settings.userName, 25},
         {"Reply packet directory",  &settings.replyDir, 60},
+        {"External editor",         &settings.externalEditor, 60},
     };
 
     int strItemCount = static_cast<int>(items.size());
-    int itemCount = strItemCount + 1; // +1 for splash screen toggle
-    int splashIdx = strItemCount;
+    // Toggle items: use external editor, splash screen
+    int itemCount = strItemCount + 2;
+    int useExtEditorIdx = strItemCount;
+    int splashIdx = strItemCount + 1;
     int selected = 0;
     bool changed = false;
 
@@ -631,12 +634,24 @@ static bool editGeneralSettings(Settings& settings)
             }
             else
             {
-                // Splash screen toggle
+                // Toggle items
+                bool toggleVal = false;
+                string toggleLabel;
+                if (i == splashIdx)
+                {
+                    toggleLabel = "Show splash screen on startup";
+                    toggleVal = settings.showSplashScreen;
+                }
+                else if (i == useExtEditorIdx)
+                {
+                    toggleLabel = "Use external editor";
+                    toggleVal = settings.useExternalEditor;
+                }
                 TermAttr lbl = isSel ? selAttr : itemAttr;
-                printAt(y, dlgX + 2, "Show splash screen on startup", lbl);
+                printAt(y, dlgX + 2, toggleLabel, lbl);
                 TermAttr chk = isSel ? selAttr : tAttr(TC_GREEN, TC_BLACK, true);
                 int checkCol = dlgX + dlgW - 8;
-                if (settings.showSplashScreen)
+                if (toggleVal)
                 {
                     printAt(y, checkCol, "[", chk);
                     g_term->setAttr(chk);
@@ -690,6 +705,11 @@ static bool editGeneralSettings(Settings& settings)
                     settings.showSplashScreen = !settings.showSplashScreen;
                     changed = true;
                 }
+                else if (selected == useExtEditorIdx)
+                {
+                    settings.useExternalEditor = !settings.useExternalEditor;
+                    changed = true;
+                }
                 else if (selected == 1) // Reply packet directory — use directory chooser
                 {
                     string startDir = settings.replyDir;
@@ -701,6 +721,30 @@ static bool editGeneralSettings(Settings& settings)
                     if (!val.empty())
                     {
                         settings.replyDir = val;
+                        changed = true;
+                    }
+                }
+                else if (selected == 2) // External editor — use file browser
+                {
+                    string startDir = settings.externalEditor;
+                    if (!startDir.empty())
+                    {
+                        auto sep = startDir.find_last_of("/\\");
+                        if (sep != string::npos)
+                            startDir = startDir.substr(0, sep);
+                    }
+                    if (startDir.empty())
+                    {
+#ifdef _WIN32
+                        startDir = "C:\\";
+#else
+                        startDir = "/usr/bin";
+#endif
+                    }
+                    string val = showFileBrowser(startDir, "", "*");
+                    if (!val.empty())
+                    {
+                        settings.externalEditor = val;
                         changed = true;
                     }
                 }

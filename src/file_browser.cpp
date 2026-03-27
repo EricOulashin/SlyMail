@@ -116,8 +116,10 @@ string showFileBrowser(const string& startDir,
                        const string& preSelectFile,
                        const string& fileExtFilter)
 {
-    // Determine which extension to accept
-    string acceptExt = fileExtFilter.empty() ? ".qwk" : fileExtFilter;
+    // Determine which extension to accept.
+    // "*" means accept any file; empty defaults to ".qwk".
+    bool acceptAny = (fileExtFilter == "*");
+    string acceptExt = acceptAny ? "" : (fileExtFilter.empty() ? ".qwk" : fileExtFilter);
     string currentDir = startDir;
     if (currentDir.empty())
     {
@@ -229,7 +231,7 @@ string showFileBrowser(const string& startDir,
                 sizeAttr = tAttr(TC_YELLOW, TC_BLACK, false);
                 dateAttr = tAttr(TC_GREEN, TC_BLACK, false);
             }
-            else if (hasExtension(entry.name, acceptExt))
+            else if (acceptAny || hasExtension(entry.name, acceptExt))
             {
                 fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
                 nameAttr = tAttr(TC_GREEN, TC_BLACK, true);
@@ -393,7 +395,7 @@ string showFileBrowser(const string& startDir,
                         scrollOffset = 0;
                         needReloadDir = true;
                     }
-                    else if (hasExtension(entry.name, acceptExt))
+                    else if (acceptAny || hasExtension(entry.name, acceptExt))
                     {
                         return entry.fullPath;
                     }

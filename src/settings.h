@@ -64,6 +64,11 @@ struct Settings
     std::string lastQwkFile;        // Last opened QWK file
     std::string userName;           // User's name for replies
     std::string replyDir;           // Directory for REP packets
+    std::string externalEditor;     // Path to external editor program
+    bool        useExternalEditor;  // Use external editor instead of built-in
+
+    // Section order as read from the INI file (preserved on save)
+    std::vector<std::string> sectionOrder;
 
     // Constructor
     Settings();

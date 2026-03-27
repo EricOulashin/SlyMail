@@ -19,6 +19,10 @@
 
 #include <ctime>
 #include <optional>
+#include <fstream>
+#include <cstdlib>
+#include <cstdio>
+#include <filesystem>
 
 using std::string;
 using std::vector;
@@ -101,6 +105,188 @@ static bool isVersionArg(const char* arg)
 {
     return strcmp(arg, "-v") == 0
         || strcmp(arg, "--version") == 0;
+}
+
+// Run an external editor to compose a message.
+// Returns the message body text, or empty string if aborted.
+static string runExternalEditor(const string& editorPath)
+{
+    namespace fs = std::filesystem;
+
+    // Create a temporary file in the .slymail directory
+    string dataDir = getSlyMailDataDir();
+    string tmpFile = dataDir + PATH_SEP_STR + "slymail_edit.tmp";
+
+    // Create the empty temp file
+    {
+        std::ofstream ofs(tmpFile, std::ios::trunc);
+        if (!ofs.is_open())
+        {
+            messageDialog("Error", "Failed to create temporary file.");
+            return "";
+        }
+    }
+
+    // Build the command line: editor "tmpfile"
+    string cmd = "\"" + editorPath + "\" \"" + tmpFile + "\"";
+
+    // Suspend the terminal so the external editor can use it
+    g_term->shutdown();
+
+    int exitCode = std::system(cmd.c_str());
+
+    // Restore the terminal
+    g_term->init();
+
+    string body;
+    if (exitCode == 0)
+    {
+        // Read the temp file contents
+        std::ifstream ifs(tmpFile);
+        if (ifs.is_open())
+        {
+            string line;
+            while (std::getline(ifs, line))
+            {
+                if (!body.empty())
+                {
+                    body += '\n';
+                }
+                body += line;
+            }
+        }
+        if (body.empty())
+        {
+            messageDialog("Message Aborted", "The message file was empty. Message not posted.");
+        }
+    }
+    else
+    {
+        messageDialog("Message Aborted", "The external editor did not exit successfully. Message not posted.");
+    }
+
+    // Clean up temp file
+    std::error_code ec;
+    fs::remove(tmpFile, ec);
+
+    return body;
+}
+
+// Try external editor; if it fails to launch, offer built-in editor fallback.
+// Returns EditorResult and populates reply.
+static EditorResult tryExternalOrBuiltinReply(
+    const QwkMessage& origMsg,
+    const string& userName,
+    const string& confName,
+    QwkReply& reply,
+    Settings& settings,
+    const string& baseDir)
+{
+    string body = runExternalEditor(settings.externalEditor);
+    if (body.empty())
+    {
+        // Check if the editor actually failed to run (not just empty file)
+        // by testing if the editor path is accessible
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        bool editorExists = fs::exists(settings.externalEditor, ec);
+        if (!editorExists)
+        {
+            // Editor not found — offer built-in fallback
+            if (confirmDialog("External editor not found. Use built-in editor?"))
+            {
+                return editReply(origMsg, userName, confName, reply, settings, baseDir);
+            }
+        }
+        return EditorResult::Aborted;
+    }
+
+    // Build the reply from the external editor output
+    reply.conference = origMsg.conference;
+    reply.to = origMsg.from;
+    reply.from = userName;
+    reply.subject = origMsg.subject;
+    if (reply.subject.substr(0, 4) != "Re: " &&
+        reply.subject.substr(0, 3) != "Re:")
+    {
+        if (reply.subject.size() > 21)
+        {
+            reply.subject = reply.subject.substr(0, 21);
+        }
+        reply.subject = "Re: " + reply.subject;
+    }
+    reply.body = body;
+    reply.replyToNum = origMsg.number;
+    reply.editor = string(PROGRAM_NAME) + " " + PROGRAM_VERSION
+                 + " (" + PROGRAM_DATE + ") (external editor)";
+    return EditorResult::Saved;
+}
+
+static EditorResult tryExternalOrBuiltinNewMsg(
+    const string& userName,
+    const string& confName,
+    int confNumber,
+    QwkReply& reply,
+    Settings& settings,
+    const string& baseDir)
+{
+    // Prompt for To and Subject first
+    int cols = g_term->getCols();
+    int rows = g_term->getRows();
+    g_term->clear();
+
+    TermAttr borderAttr = tAttr(TC_CYAN, TC_BLACK, true);
+    int boxW = 50;
+    int boxH = 9;
+    int boxY = (rows - boxH) / 2;
+    int boxX = (cols - boxW) / 2;
+
+    drawBox(boxY, boxX, boxH, boxW, borderAttr, "New Message", borderAttr);
+
+    printAt(boxY + 2, boxX + 3, "Conference: " + confName,
+        tAttr(TC_GREEN, TC_BLACK, false));
+
+    printAt(boxY + 4, boxX + 3, "     To: ", tAttr(TC_CYAN, TC_BLACK, true));
+    string to = getStringInput(boxY + 4, boxX + 12, 25, "All",
+        tAttr(TC_WHITE, TC_BLACK, true));
+    if (to.empty())
+    {
+        return EditorResult::Aborted;
+    }
+
+    printAt(boxY + 5, boxX + 3, "Subject: ", tAttr(TC_CYAN, TC_BLACK, true));
+    string subj = getStringInput(boxY + 5, boxX + 12, 25, "",
+        tAttr(TC_WHITE, TC_BLACK, true));
+    if (subj.empty())
+    {
+        return EditorResult::Aborted;
+    }
+
+    string body = runExternalEditor(settings.externalEditor);
+    if (body.empty())
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        bool editorExists = fs::exists(settings.externalEditor, ec);
+        if (!editorExists)
+        {
+            if (confirmDialog("External editor not found. Use built-in editor?"))
+            {
+                return editNewMessage(userName, confName, confNumber, reply, settings, baseDir);
+            }
+        }
+        return EditorResult::Aborted;
+    }
+
+    reply.conference = confNumber;
+    reply.to = to;
+    reply.from = userName;
+    reply.subject = subj;
+    reply.body = body;
+    reply.replyToNum = 0;
+    reply.editor = string(PROGRAM_NAME) + " " + PROGRAM_VERSION
+                 + " (" + PROGRAM_DATE + ") (external editor)";
+    return EditorResult::Saved;
 }
 
 // Main application loop
@@ -363,13 +549,27 @@ int main(int argc, char* argv[])
                                         case MsgReadResult::Reply:
                                         {
                                             QwkReply reply;
-                                            EditorResult edResult = editReply(
-                                                conf.messages[currentMsg],
-                                                settings.userName,
-                                                conf.name,
-                                                reply,
-                                                settings,
-                                                baseDir);
+                                            EditorResult edResult;
+                                            if (settings.useExternalEditor && !settings.externalEditor.empty())
+                                            {
+                                                edResult = tryExternalOrBuiltinReply(
+                                                    conf.messages[currentMsg],
+                                                    settings.userName,
+                                                    conf.name,
+                                                    reply,
+                                                    settings,
+                                                    baseDir);
+                                            }
+                                            else
+                                            {
+                                                edResult = editReply(
+                                                    conf.messages[currentMsg],
+                                                    settings.userName,
+                                                    conf.name,
+                                                    reply,
+                                                    settings,
+                                                    baseDir);
+                                            }
                                             if (edResult == EditorResult::Saved)
                                             {
                                                 pendingReplies.push_back(reply);
@@ -437,13 +637,27 @@ int main(int argc, char* argv[])
                             case MsgListResult::NewMessage:
                             {
                                 QwkReply reply;
-                                EditorResult edResult = editNewMessage(
-                                    settings.userName,
-                                    conf.name,
-                                    conf.number,
-                                    reply,
-                                    settings,
-                                    baseDir);
+                                EditorResult edResult;
+                                if (settings.useExternalEditor && !settings.externalEditor.empty())
+                                {
+                                    edResult = tryExternalOrBuiltinNewMsg(
+                                        settings.userName,
+                                        conf.name,
+                                        conf.number,
+                                        reply,
+                                        settings,
+                                        baseDir);
+                                }
+                                else
+                                {
+                                    edResult = editNewMessage(
+                                        settings.userName,
+                                        conf.name,
+                                        conf.number,
+                                        reply,
+                                        settings,
+                                        baseDir);
+                                }
                                 if (edResult == EditorResult::Saved)
                                 {
                                     pendingReplies.push_back(reply);
