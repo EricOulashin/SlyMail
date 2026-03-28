@@ -15,13 +15,20 @@ using std::map;
 
 TermAttr parseSyncAttr(const string& attrStr)
 {
+    // Each color value implicitly starts from the "normal" attribute:
+    // white foreground, black background, not bright.
+    // This matches Synchronet Ctrl-A behavior where 'n' resets all attributes.
     int fg = TC_WHITE;
     int bg = TC_BLACK;
     bool bright = false;
 
-    for (size_t i = 0; i < attrStr.size(); ++i)
+    // Prepend 'n' (normal) so every value starts from a known clean state,
+    // even if the theme file value doesn't explicitly include 'n'.
+    string fullStr = "n" + attrStr;
+
+    for (size_t i = 0; i < fullStr.size(); ++i)
     {
-        char ch = attrStr[i];
+        char ch = fullStr[i];
         switch (ch)
         {
             case 'n': case 'N':
