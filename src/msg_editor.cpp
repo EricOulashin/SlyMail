@@ -82,10 +82,22 @@ void MessageEditor::init(const Settings& settings, const string& baseDir)
                 configDir = fallback;
         }
     }
-    string iceFile = settings.iceThemeFile.empty() ? "EditorIceColors_BlueIce.ini" : settings.iceThemeFile;
-    string dctFile = settings.dctThemeFile.empty() ? "EditorDCTColors_Default.ini" : settings.dctThemeFile;
-    iceTheme = loadIceTheme(configDir + PATH_SEP_STR + iceFile);
-    dctTheme = loadDctTheme(configDir + PATH_SEP_STR + dctFile);
+
+    // Load the theme files if they exist; otherwise, initialize themes to defaults
+    // Ice
+    const string iceFilename = settings.iceThemeFile.empty() ? "EditorIceColors_BlueIce.ini" : settings.iceThemeFile;
+    const string iceThemeFilename = configDir + PATH_SEP_STR + iceFilename;
+    if (fs::exists(iceThemeFilename))
+        iceTheme = loadIceTheme(iceThemeFilename);
+    else
+        iceTheme.initDefaults();
+    // DCT
+    const string DCTFilename = settings.dctThemeFile.empty() ? "EditorDCTColors_Default.ini" : settings.dctThemeFile;
+    const string DCTThemeFilename = configDir + PATH_SEP_STR + DCTFilename;
+    if (fs::exists(DCTThemeFilename))
+        dctTheme = loadDctTheme(DCTThemeFilename);
+    else
+        dctTheme.initDefaults();
 
     generateBorderColors();
 }
@@ -246,15 +258,15 @@ void MessageEditor::prepareQuotes(const QwkMessage& msg, const Settings& setting
 void MessageEditor::drawIceHeader()
 {
     int cols = g_term->getCols();
-    TermAttr bc1 = iceTheme.borderColor1;
-    TermAttr bc2 = iceTheme.borderColor2;
-    TermAttr labelAt = iceTheme.topLabelColor;
-    TermAttr colonAt = iceTheme.topLabelColonColor;
-    TermAttr toAt    = iceTheme.topToColor;
-    TermAttr fromAt  = iceTheme.topFromColor;
-    TermAttr subjAt  = iceTheme.topSubjectColor;
-    TermAttr timeAt  = iceTheme.topTimeColor;
-    TermAttr modeAt  = iceTheme.editMode;
+    TermAttr bc1 = resolveAttr(iceTheme.borderColor1);
+    TermAttr bc2 = resolveAttr(iceTheme.borderColor2);
+    TermAttr labelAt = resolveAttr(iceTheme.topLabelColor);
+    TermAttr colonAt = resolveAttr(iceTheme.topLabelColonColor);
+    TermAttr toAt    = resolveAttr(iceTheme.topToColor);
+    TermAttr fromAt  = resolveAttr(iceTheme.topFromColor);
+    TermAttr subjAt  = resolveAttr(iceTheme.topSubjectColor);
+    TermAttr timeAt  = resolveAttr(iceTheme.topTimeColor);
+    TermAttr modeAt  = resolveAttr(iceTheme.editMode);
 
     // Row 0: Top border with cached alternating colors
     g_term->setAttr(cachedBorderColor(0, iceTopBorderColors, bc1, bc2));
@@ -305,7 +317,7 @@ void MessageEditor::drawIceHeader()
     // TL (time left - just show a placeholder) and INS/OVR
     printAt(2, cols - 14, "TL", labelAt);
     printAt(2, cols - 12, ":", colonAt);
-    printAt(2, cols - 10, "---", iceTheme.topTimeLeftColor);
+    printAt(2, cols - 10, "---", resolveAttr(iceTheme.topTimeLeftColor));
     string modeStr = insertMode ? "INS" : "OVR";
     printAt(2, cols - 5, modeStr, modeAt);
 
@@ -332,21 +344,21 @@ void MessageEditor::drawIceHeader()
 void MessageEditor::drawDctHeader()
 {
     int cols = g_term->getCols();
-    TermAttr tbc1 = dctTheme.topBorderColor1;
-    TermAttr tbc2 = dctTheme.topBorderColor2;
-    TermAttr ebc1 = dctTheme.editAreaBorderColor1;
-    TermAttr ebc2 = dctTheme.editAreaBorderColor2;
-    TermAttr labelAt  = dctTheme.topLabelColor;
-    TermAttr bracketAt = dctTheme.topInfoBracketColor;
-    TermAttr fromAt   = dctTheme.topFromColor;
-    TermAttr fromFill = dctTheme.topFromFillColor;
-    TermAttr toAt     = dctTheme.topToColor;
-    TermAttr toFill   = dctTheme.topToFillColor;
-    TermAttr subjAt   = dctTheme.topSubjColor;
-    TermAttr subjFill = dctTheme.topSubjFillColor;
-    TermAttr areaAt   = dctTheme.topAreaColor;
-    TermAttr areaFill = dctTheme.topAreaFillColor;
-    TermAttr timeAt   = dctTheme.topTimeColor;
+    TermAttr tbc1 = resolveAttr(dctTheme.topBorderColor1);
+    TermAttr tbc2 = resolveAttr(dctTheme.topBorderColor2);
+    TermAttr ebc1 = resolveAttr(dctTheme.editAreaBorderColor1);
+    TermAttr ebc2 = resolveAttr(dctTheme.editAreaBorderColor2);
+    TermAttr labelAt  = resolveAttr(dctTheme.topLabelColor);
+    TermAttr bracketAt = resolveAttr(dctTheme.topInfoBracketColor);
+    TermAttr fromAt   = resolveAttr(dctTheme.topFromColor);
+    TermAttr fromFill = resolveAttr(dctTheme.topFromFillColor);
+    TermAttr toAt     = resolveAttr(dctTheme.topToColor);
+    TermAttr toFill   = resolveAttr(dctTheme.topToFillColor);
+    TermAttr subjAt   = resolveAttr(dctTheme.topSubjColor);
+    TermAttr subjFill = resolveAttr(dctTheme.topSubjFillColor);
+    TermAttr areaAt   = resolveAttr(dctTheme.topAreaColor);
+    TermAttr areaFill = resolveAttr(dctTheme.topAreaFillColor);
+    TermAttr timeAt   = resolveAttr(dctTheme.topTimeColor);
 
     // Row 0: Top border with cached alternating colors
     g_term->setAttr(cachedBorderColor(0, dctTopBorderColors, tbc1, tbc2));
@@ -431,7 +443,7 @@ void MessageEditor::drawDctHeader()
     printAt(2, leftX + 1, " Left ", labelAt);
     g_term->setAttr(bracketAt);
     g_term->putCP437(2, leftX + 7, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-    printAt(2, leftX + 8, " --- ", dctTheme.topTimeLeftColor);
+    printAt(2, leftX + 8, " --- ", resolveAttr(dctTheme.topTimeLeftColor));
 
     // Row 3: Subj | value...
     g_term->setAttr(cachedBorderColor(3, dctVertLeftColors, tbc1, tbc2));
@@ -452,8 +464,8 @@ void MessageEditor::drawDctHeader()
     g_term->putCP437(4, cols - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
 
     // INS/OVR in border
-    TermAttr modeBracket = dctTheme.editModeBrackets;
-    TermAttr modeText    = dctTheme.editMode;
+    TermAttr modeBracket = resolveAttr(dctTheme.editModeBrackets);
+    TermAttr modeText    = resolveAttr(dctTheme.editMode);
     int mx = cols - 7;
     printAt(4, mx, "[", modeBracket);
     printAt(4, mx + 1, insertMode ? "INS" : "OVR", modeText);
@@ -468,10 +480,10 @@ void MessageEditor::drawIceStatusBar()
 {
     int cols = g_term->getCols();
     int rows = g_term->getRows();
-    TermAttr bc1 = iceTheme.borderColor1;
-    TermAttr bc2 = iceTheme.borderColor2;
+    TermAttr bc1 = resolveAttr(iceTheme.borderColor1);
+    TermAttr bc2 = resolveAttr(iceTheme.borderColor2);
     TermAttr regAt   = tAttr(TC_GREEN, TC_BLACK, false);
-    TermAttr ctrlAt  = iceTheme.keyInfoLabelColor;
+    TermAttr ctrlAt  = resolveAttr(iceTheme.keyInfoLabelColor);
     TermAttr keyAt   = IceColors::keyLetter();
     TermAttr helpAt  = tAttr(TC_GREEN, TC_BLACK, false);
     TermAttr copyAt  = tAttr(TC_CYAN, TC_BLACK, false);
@@ -545,12 +557,12 @@ void MessageEditor::drawDctStatusBar()
 {
     int cols = g_term->getCols();
     int rows = g_term->getRows();
-    TermAttr ebc1 = dctTheme.editAreaBorderColor1;
-    TermAttr ebc2 = dctTheme.editAreaBorderColor2;
-    TermAttr bracketAt = dctTheme.bottomHelpBrackets;
-    TermAttr keyAt     = dctTheme.bottomHelpKeys;
-    TermAttr descAt    = dctTheme.bottomHelpKeyDesc;
-    TermAttr modeAt    = dctTheme.editMode;
+    TermAttr ebc1 = resolveAttr(dctTheme.editAreaBorderColor1);
+    TermAttr ebc2 = resolveAttr(dctTheme.editAreaBorderColor2);
+    TermAttr bracketAt = resolveAttr(dctTheme.bottomHelpBrackets);
+    TermAttr keyAt     = resolveAttr(dctTheme.bottomHelpKeys);
+    TermAttr descAt    = resolveAttr(dctTheme.bottomHelpKeyDesc);
+    TermAttr modeAt    = resolveAttr(dctTheme.editMode);
 
     // Bottom border of edit area (cached colors)
     int y = rows - 2;
@@ -562,7 +574,7 @@ void MessageEditor::drawDctStatusBar()
 
     // Status line (centered, matching DCT style)
     y = rows - 1;
-    fillRow(y, dctTheme.bottomHelpFill);
+    fillRow(y, resolveAttr(dctTheme.bottomHelpFill));
 
     // Calculate total width to center the help text
     // Format: [CTRL Z] Save  [CTRL A] Abort  [CTRL Q] Quote  [ESC] Menu
@@ -738,11 +750,11 @@ void MessageEditor::drawQuoteWindow()
     else
     {
         // DCT quote window: use loaded theme colors
-        borderAttr = dctTheme.quoteWinBorderColor;
-        titleAttr  = dctTheme.quoteWinBorderTextColor;
-        textAttr   = dctTheme.quoteWinText;
-        selAttr    = dctTheme.quoteLineHighlightColor;
-        helpAttr   = dctTheme.quoteWinBorderTextColor;
+        borderAttr = resolveAttr(dctTheme.quoteWinBorderColor);
+        titleAttr  = resolveAttr(dctTheme.quoteWinBorderTextColor);
+        textAttr   = resolveAttr(dctTheme.quoteWinText);
+        selAttr    = resolveAttr(dctTheme.quoteLineHighlightColor);
+        helpAttr   = resolveAttr(dctTheme.quoteWinBorderTextColor);
     }
 
     quoteWinTop = editTop + editHeight - quoteWinHeight;
@@ -816,10 +828,10 @@ bool MessageEditor::promptYesNoIce(const string& question)
     int rows = g_term->getRows();
     int y = rows - 1;
 
-    TermAttr selBdr  = iceTheme.selectedOptionBorderColor;
-    TermAttr selTxt  = iceTheme.selectedOptionTextColor;
-    TermAttr unsBdr  = iceTheme.unselectedOptionBorderColor;
-    TermAttr unsTxt  = iceTheme.unselectedOptionTextColor;
+    TermAttr selBdr  = resolveAttr(iceTheme.selectedOptionBorderColor);
+    TermAttr selTxt  = resolveAttr(iceTheme.selectedOptionTextColor);
+    TermAttr unsBdr  = resolveAttr(iceTheme.unselectedOptionBorderColor);
+    TermAttr unsTxt  = resolveAttr(iceTheme.unselectedOptionTextColor);
 
     bool selectedYes = true;
 
@@ -828,7 +840,7 @@ bool MessageEditor::promptYesNoIce(const string& question)
         fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
 
         // Draw question
-        printAt(y, 1, question + "? ", iceTheme.topLabelColor);
+        printAt(y, 1, question + "? ", resolveAttr(iceTheme.topLabelColor));
 
         int optX = 1 + static_cast<int>(question.size()) + 2;
 
@@ -896,11 +908,11 @@ bool MessageEditor::promptYesNoDct(const string& question, const string& title)
     int dlgY = (rows - dlgH) / 2;
     int dlgX = (cols - dlgW) / 2;
 
-    TermAttr borderAttr = dctTheme.textBoxBorder;
-    TermAttr titleAttr  = dctTheme.textBoxBorderText;
-    TermAttr textAttr   = dctTheme.textBoxInnerText;
-    TermAttr brkAttr    = dctTheme.yesNoBoxBrackets;
-    TermAttr ynAttr     = dctTheme.yesNoBoxYesNoText;
+    TermAttr borderAttr = resolveAttr(dctTheme.textBoxBorder);
+    TermAttr titleAttr  = resolveAttr(dctTheme.textBoxBorderText);
+    TermAttr textAttr   = resolveAttr(dctTheme.textBoxInnerText);
+    TermAttr brkAttr    = resolveAttr(dctTheme.yesNoBoxBrackets);
+    TermAttr ynAttr     = resolveAttr(dctTheme.yesNoBoxYesNoText);
 
     bool selectedYes = true;
 

@@ -25,17 +25,11 @@
 // ANSI is always enabled and has no flag.
 struct AttrCodeFlags
 {
-    bool synchronet;    // Synchronet Ctrl-A codes
-    bool wwiv;          // WWIV heart codes
-    bool celerity;      // Celerity pipe codes (|letter)
-    bool renegade;      // Renegade pipe codes (|00-|31)
-    bool pcboard;       // PCBoard/Wildcat @X## codes
-
-    AttrCodeFlags()
-        : synchronet(true), wwiv(true), celerity(true),
-          renegade(true), pcboard(true)
-    {
-    }
+    bool synchronet = true; // Synchronet Ctrl-A codes
+    bool wwiv       = true; // WWIV heart codes
+    bool celerity   = true; // Celerity pipe codes (|letter)
+    bool renegade   = true; // Renegade pipe codes (|00-|31)
+    bool pcboard    = true; // PCBoard/Wildcat @X## codes
 };
 
 // A segment of text with a specific color attribute

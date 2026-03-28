@@ -13,8 +13,10 @@ using std::map;
 // Synchronet attribute string parser
 // ============================================================
 
-TermAttr parseSyncAttr(const string& attrStr)
+vector<TermAttr> parseSyncAttr(const string& attrStr)
 {
+    vector<TermAttr> attrs;
+
     // Each color value implicitly starts from the "normal" attribute:
     // white foreground, black background, not bright.
     // This matches Synchronet Ctrl-A behavior where 'n' resets all attributes.
@@ -22,77 +24,90 @@ TermAttr parseSyncAttr(const string& attrStr)
     int bg = TC_BLACK;
     bool bright = false;
 
-    // Prepend 'n' (normal) so every value starts from a known clean state,
-    // even if the theme file value doesn't explicitly include 'n'.
-    string fullStr = "n" + attrStr;
-
-    for (size_t i = 0; i < fullStr.size(); ++i)
+    for (const char c : attrStr)
     {
-        char ch = fullStr[i];
-        switch (ch)
+        switch (c)
         {
             case 'n': case 'N':
                 fg = TC_WHITE;
                 bg = TC_BLACK;
                 bright = false;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'k': case 'K':
                 fg = TC_BLACK;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'r': case 'R':
                 fg = TC_RED;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'g': case 'G':
                 fg = TC_GREEN;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'y': case 'Y':
                 fg = TC_YELLOW;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'b': case 'B':
                 fg = TC_BLUE;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'm': case 'M':
                 fg = TC_MAGENTA;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'c': case 'C':
                 fg = TC_CYAN;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'w': case 'W':
                 fg = TC_WHITE;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'h': case 'H':
                 bright = true;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '0':
                 bg = TC_BLACK;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '1':
                 bg = TC_RED;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '2':
                 bg = TC_GREEN;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '3':
                 bg = TC_YELLOW;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '4':
                 bg = TC_BLUE;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '5':
                 bg = TC_MAGENTA;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '6':
                 bg = TC_CYAN;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '7':
                 bg = TC_WHITE;
+                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             default:
                 break;
         }
     }
 
-    return TermAttr(fg, bg, bright);
+    return attrs;
 }
 
 // ============================================================
@@ -164,17 +179,17 @@ map<string, string> readIniFile(const string& path)
     return kvMap;
 }
 
-// Helper: look up a key in the map and parse it, or return a default TermAttr
-TermAttr getAttrOrDefault(const map<string, string>& kvMap,
-                          const string& key,
-                          const TermAttr& defaultAttr)
+// Helper: look up a key in the map and parse it, or return a default
+vector<TermAttr> getAttrOrDefault(const map<string, string>& kvMap,
+                                  const string& key,
+                                  const vector<TermAttr>& defaultAttrs)
 {
     auto it = kvMap.find(key);
     if (it != kvMap.end() && !it->second.empty())
     {
         return parseSyncAttr(it->second);
     }
-    return defaultAttr;
+    return defaultAttrs;
 }
 
 // ============================================================
@@ -184,37 +199,37 @@ TermAttr getAttrOrDefault(const map<string, string>& kvMap,
 IceTheme loadIceTheme(const string& path)
 {
     IceTheme theme;
+    theme.initDefaults();
     auto kv = readIniFile(path);
 
-    // Defaults match EditorIceColors_BlueIce.ini
-    theme.borderColor1              = getAttrOrDefault(kv, "BorderColor1",              TermAttr(TC_BLUE,   TC_BLACK, false));
-    theme.borderColor2              = getAttrOrDefault(kv, "BorderColor2",              TermAttr(TC_BLUE,   TC_BLACK, true));
-    theme.quoteLineColor            = getAttrOrDefault(kv, "QuoteLineColor",            TermAttr(TC_CYAN,   TC_BLACK, false));
-    theme.keyInfoLabelColor         = getAttrOrDefault(kv, "KeyInfoLabelColor",         TermAttr(TC_CYAN,   TC_BLACK, true));
+    theme.borderColor1              = getAttrOrDefault(kv, "BorderColor1",              theme.borderColor1);
+    theme.borderColor2              = getAttrOrDefault(kv, "BorderColor2",              theme.borderColor2);
+    theme.quoteLineColor            = getAttrOrDefault(kv, "QuoteLineColor",            theme.quoteLineColor);
+    theme.keyInfoLabelColor         = getAttrOrDefault(kv, "KeyInfoLabelColor",         theme.keyInfoLabelColor);
 
-    theme.topInfoBkgColor           = getAttrOrDefault(kv, "TopInfoBkgColor",           TermAttr(TC_WHITE,  TC_BLUE,  false));
-    theme.topLabelColor             = getAttrOrDefault(kv, "TopLabelColor",             TermAttr(TC_CYAN,   TC_BLACK, true));
-    theme.topLabelColonColor        = getAttrOrDefault(kv, "TopLabelColonColor",        TermAttr(TC_BLUE,   TC_BLACK, true));
-    theme.topToColor                = getAttrOrDefault(kv, "TopToColor",                TermAttr(TC_WHITE,  TC_BLACK, true));
-    theme.topFromColor              = getAttrOrDefault(kv, "TopFromColor",              TermAttr(TC_WHITE,  TC_BLACK, true));
-    theme.topSubjectColor           = getAttrOrDefault(kv, "TopSubjectColor",           TermAttr(TC_WHITE,  TC_BLACK, true));
-    theme.topTimeColor              = getAttrOrDefault(kv, "TopTimeColor",              TermAttr(TC_GREEN,  TC_BLACK, true));
-    theme.topTimeLeftColor          = getAttrOrDefault(kv, "TopTimeLeftColor",          TermAttr(TC_GREEN,  TC_BLACK, true));
-    theme.editMode                  = getAttrOrDefault(kv, "EditMode",                  TermAttr(TC_CYAN,   TC_BLACK, true));
+    theme.topInfoBkgColor           = getAttrOrDefault(kv, "TopInfoBkgColor",           theme.topInfoBkgColor);
+    theme.topLabelColor             = getAttrOrDefault(kv, "TopLabelColor",             theme.topLabelColor);
+    theme.topLabelColonColor        = getAttrOrDefault(kv, "TopLabelColonColor",        theme.topLabelColonColor);
+    theme.topToColor                = getAttrOrDefault(kv, "TopToColor",                theme.topToColor);
+    theme.topFromColor              = getAttrOrDefault(kv, "TopFromColor",              theme.topFromColor);
+    theme.topSubjectColor           = getAttrOrDefault(kv, "TopSubjectColor",           theme.topSubjectColor);
+    theme.topTimeColor              = getAttrOrDefault(kv, "TopTimeColor",              theme.topTimeColor);
+    theme.topTimeLeftColor          = getAttrOrDefault(kv, "TopTimeLeftColor",          theme.topTimeLeftColor);
+    theme.editMode                  = getAttrOrDefault(kv, "EditMode",                  theme.editMode);
 
-    theme.quoteWinText              = getAttrOrDefault(kv, "QuoteWinText",              TermAttr(TC_WHITE,  TC_BLACK, true));
-    theme.quoteLineHighlightColor   = getAttrOrDefault(kv, "QuoteLineHighlightColor",   TermAttr(TC_CYAN,   TC_BLUE,  true));
-    theme.quoteWinBorderTextColor   = getAttrOrDefault(kv, "QuoteWinBorderTextColor",   TermAttr(TC_CYAN,   TC_BLACK, true));
+    theme.quoteWinText              = getAttrOrDefault(kv, "QuoteWinText",              theme.quoteWinText);
+    theme.quoteLineHighlightColor   = getAttrOrDefault(kv, "QuoteLineHighlightColor",   theme.quoteLineHighlightColor);
+    theme.quoteWinBorderTextColor   = getAttrOrDefault(kv, "QuoteWinBorderTextColor",   theme.quoteWinBorderTextColor);
 
-    theme.selectedOptionBorderColor   = getAttrOrDefault(kv, "SelectedOptionBorderColor",   TermAttr(TC_BLUE,  TC_BLUE,  true));
-    theme.selectedOptionTextColor     = getAttrOrDefault(kv, "SelectedOptionTextColor",     TermAttr(TC_CYAN,  TC_BLUE,  true));
-    theme.unselectedOptionBorderColor = getAttrOrDefault(kv, "UnselectedOptionBorderColor", TermAttr(TC_BLUE,  TC_BLACK, false));
-    theme.unselectedOptionTextColor   = getAttrOrDefault(kv, "UnselectedOptionTextColor",   TermAttr(TC_WHITE, TC_BLACK, false));
+    theme.selectedOptionBorderColor   = getAttrOrDefault(kv, "SelectedOptionBorderColor",   theme.selectedOptionBorderColor);
+    theme.selectedOptionTextColor     = getAttrOrDefault(kv, "SelectedOptionTextColor",     theme.selectedOptionTextColor);
+    theme.unselectedOptionBorderColor = getAttrOrDefault(kv, "UnselectedOptionBorderColor", theme.unselectedOptionBorderColor);
+    theme.unselectedOptionTextColor   = getAttrOrDefault(kv, "UnselectedOptionTextColor",   theme.unselectedOptionTextColor);
 
-    theme.listBoxBorder             = getAttrOrDefault(kv, "listBoxBorder",             TermAttr(TC_BLUE,   TC_BLACK, false));
-    theme.listBoxBorderText         = getAttrOrDefault(kv, "listBoxBorderText",         TermAttr(TC_BLUE,   TC_BLACK, true));
-    theme.listBoxItemText           = getAttrOrDefault(kv, "listBoxItemText",           TermAttr(TC_CYAN,   TC_BLACK, false));
-    theme.listBoxItemHighlight      = getAttrOrDefault(kv, "listBoxItemHighlight",      TermAttr(TC_BLUE,   TC_WHITE, false));
+    theme.listBoxBorder             = getAttrOrDefault(kv, "listBoxBorder",             theme.listBoxBorder);
+    theme.listBoxBorderText         = getAttrOrDefault(kv, "listBoxBorderText",         theme.listBoxBorderText);
+    theme.listBoxItemText           = getAttrOrDefault(kv, "listBoxItemText",           theme.listBoxItemText);
+    theme.listBoxItemHighlight      = getAttrOrDefault(kv, "listBoxItemHighlight",      theme.listBoxItemHighlight);
 
     return theme;
 }
@@ -226,52 +241,52 @@ IceTheme loadIceTheme(const string& path)
 DctTheme loadDctTheme(const string& path)
 {
     DctTheme theme;
+    theme.initDefaults();
     auto kv = readIniFile(path);
 
-    // Defaults match EditorDCTColors_Default.ini
-    theme.topBorderColor1           = getAttrOrDefault(kv, "TopBorderColor1",           TermAttr(TC_RED,     TC_BLACK, false));
-    theme.topBorderColor2           = getAttrOrDefault(kv, "TopBorderColor2",           TermAttr(TC_RED,     TC_BLACK, true));
-    theme.editAreaBorderColor1      = getAttrOrDefault(kv, "EditAreaBorderColor1",      TermAttr(TC_GREEN,   TC_BLACK, false));
-    theme.editAreaBorderColor2      = getAttrOrDefault(kv, "EditAreaBorderColor2",      TermAttr(TC_GREEN,   TC_BLACK, true));
-    theme.editModeBrackets          = getAttrOrDefault(kv, "EditModeBrackets",          TermAttr(TC_BLACK,   TC_BLACK, true));
-    theme.editMode                  = getAttrOrDefault(kv, "EditMode",                  TermAttr(TC_WHITE,   TC_BLACK, false));
+    theme.topBorderColor1           = getAttrOrDefault(kv, "TopBorderColor1",           theme.topBorderColor1);
+    theme.topBorderColor2           = getAttrOrDefault(kv, "TopBorderColor2",           theme.topBorderColor2);
+    theme.editAreaBorderColor1      = getAttrOrDefault(kv, "EditAreaBorderColor1",      theme.editAreaBorderColor1);
+    theme.editAreaBorderColor2      = getAttrOrDefault(kv, "EditAreaBorderColor2",      theme.editAreaBorderColor2);
+    theme.editModeBrackets          = getAttrOrDefault(kv, "EditModeBrackets",          theme.editModeBrackets);
+    theme.editMode                  = getAttrOrDefault(kv, "EditMode",                  theme.editMode);
 
-    theme.topLabelColor             = getAttrOrDefault(kv, "TopLabelColor",             TermAttr(TC_BLUE,    TC_BLACK, true));
-    theme.topLabelColonColor        = getAttrOrDefault(kv, "TopLabelColonColor",        TermAttr(TC_BLUE,    TC_BLACK, false));
-    theme.topFromColor              = getAttrOrDefault(kv, "TopFromColor",              TermAttr(TC_CYAN,    TC_BLACK, true));
-    theme.topFromFillColor          = getAttrOrDefault(kv, "TopFromFillColor",          TermAttr(TC_CYAN,    TC_BLACK, false));
-    theme.topToColor                = getAttrOrDefault(kv, "TopToColor",                TermAttr(TC_CYAN,    TC_BLACK, true));
-    theme.topToFillColor            = getAttrOrDefault(kv, "TopToFillColor",            TermAttr(TC_CYAN,    TC_BLACK, false));
-    theme.topSubjColor              = getAttrOrDefault(kv, "TopSubjColor",              TermAttr(TC_WHITE,   TC_BLACK, true));
-    theme.topSubjFillColor          = getAttrOrDefault(kv, "TopSubjFillColor",          TermAttr(TC_WHITE,   TC_BLACK, false));
-    theme.topAreaColor              = getAttrOrDefault(kv, "TopAreaColor",              TermAttr(TC_GREEN,   TC_BLACK, true));
-    theme.topAreaFillColor          = getAttrOrDefault(kv, "TopAreaFillColor",          TermAttr(TC_GREEN,   TC_BLACK, false));
-    theme.topTimeColor              = getAttrOrDefault(kv, "TopTimeColor",              TermAttr(TC_YELLOW,  TC_BLACK, true));
-    theme.topTimeFillColor          = getAttrOrDefault(kv, "TopTimeFillColor",          TermAttr(TC_RED,     TC_BLACK, false));
-    theme.topTimeLeftColor          = getAttrOrDefault(kv, "TopTimeLeftColor",          TermAttr(TC_YELLOW,  TC_BLACK, true));
-    theme.topTimeLeftFillColor      = getAttrOrDefault(kv, "TopTimeLeftFillColor",      TermAttr(TC_RED,     TC_BLACK, false));
-    theme.topInfoBracketColor       = getAttrOrDefault(kv, "TopInfoBracketColor",       TermAttr(TC_MAGENTA, TC_BLACK, false));
+    theme.topLabelColor             = getAttrOrDefault(kv, "TopLabelColor",             theme.topLabelColor);
+    theme.topLabelColonColor        = getAttrOrDefault(kv, "TopLabelColonColor",        theme.topLabelColonColor);
+    theme.topFromColor              = getAttrOrDefault(kv, "TopFromColor",              theme.topFromColor);
+    theme.topFromFillColor          = getAttrOrDefault(kv, "TopFromFillColor",          theme.topFromFillColor);
+    theme.topToColor                = getAttrOrDefault(kv, "TopToColor",                theme.topToColor);
+    theme.topToFillColor            = getAttrOrDefault(kv, "TopToFillColor",            theme.topToFillColor);
+    theme.topSubjColor              = getAttrOrDefault(kv, "TopSubjColor",              theme.topSubjColor);
+    theme.topSubjFillColor          = getAttrOrDefault(kv, "TopSubjFillColor",          theme.topSubjFillColor);
+    theme.topAreaColor              = getAttrOrDefault(kv, "TopAreaColor",              theme.topAreaColor);
+    theme.topAreaFillColor          = getAttrOrDefault(kv, "TopAreaFillColor",          theme.topAreaFillColor);
+    theme.topTimeColor              = getAttrOrDefault(kv, "TopTimeColor",              theme.topTimeColor);
+    theme.topTimeFillColor          = getAttrOrDefault(kv, "TopTimeFillColor",          theme.topTimeFillColor);
+    theme.topTimeLeftColor          = getAttrOrDefault(kv, "TopTimeLeftColor",          theme.topTimeLeftColor);
+    theme.topTimeLeftFillColor      = getAttrOrDefault(kv, "TopTimeLeftFillColor",      theme.topTimeLeftFillColor);
+    theme.topInfoBracketColor       = getAttrOrDefault(kv, "TopInfoBracketColor",       theme.topInfoBracketColor);
 
-    theme.quoteWinText              = getAttrOrDefault(kv, "QuoteWinText",              TermAttr(TC_BLUE,    TC_WHITE, false));
-    theme.quoteLineHighlightColor   = getAttrOrDefault(kv, "QuoteLineHighlightColor",   TermAttr(TC_WHITE,   TC_BLACK, false));
-    theme.quoteWinBorderTextColor   = getAttrOrDefault(kv, "QuoteWinBorderTextColor",   TermAttr(TC_RED,     TC_WHITE, false));
-    theme.quoteWinBorderColor       = getAttrOrDefault(kv, "QuoteWinBorderColor",       TermAttr(TC_BLACK,   TC_WHITE, false));
+    theme.quoteWinText              = getAttrOrDefault(kv, "QuoteWinText",              theme.quoteWinText);
+    theme.quoteLineHighlightColor   = getAttrOrDefault(kv, "QuoteLineHighlightColor",   theme.quoteLineHighlightColor);
+    theme.quoteWinBorderTextColor   = getAttrOrDefault(kv, "QuoteWinBorderTextColor",   theme.quoteWinBorderTextColor);
+    theme.quoteWinBorderColor       = getAttrOrDefault(kv, "QuoteWinBorderColor",       theme.quoteWinBorderColor);
 
-    theme.bottomHelpBrackets        = getAttrOrDefault(kv, "BottomHelpBrackets",        TermAttr(TC_BLACK,   TC_BLACK, true));
-    theme.bottomHelpKeys            = getAttrOrDefault(kv, "BottomHelpKeys",            TermAttr(TC_RED,     TC_BLACK, true));
-    theme.bottomHelpFill            = getAttrOrDefault(kv, "BottomHelpFill",            TermAttr(TC_RED,     TC_BLACK, false));
-    theme.bottomHelpKeyDesc         = getAttrOrDefault(kv, "BottomHelpKeyDesc",         TermAttr(TC_CYAN,    TC_BLACK, false));
+    theme.bottomHelpBrackets        = getAttrOrDefault(kv, "BottomHelpBrackets",        theme.bottomHelpBrackets);
+    theme.bottomHelpKeys            = getAttrOrDefault(kv, "BottomHelpKeys",            theme.bottomHelpKeys);
+    theme.bottomHelpFill            = getAttrOrDefault(kv, "BottomHelpFill",            theme.bottomHelpFill);
+    theme.bottomHelpKeyDesc         = getAttrOrDefault(kv, "BottomHelpKeyDesc",         theme.bottomHelpKeyDesc);
 
-    theme.textBoxBorder             = getAttrOrDefault(kv, "TextBoxBorder",             TermAttr(TC_BLACK,   TC_WHITE, false));
-    theme.textBoxBorderText         = getAttrOrDefault(kv, "TextBoxBorderText",         TermAttr(TC_RED,     TC_WHITE, false));
-    theme.textBoxInnerText          = getAttrOrDefault(kv, "TextBoxInnerText",          TermAttr(TC_BLUE,    TC_WHITE, false));
-    theme.yesNoBoxBrackets          = getAttrOrDefault(kv, "YesNoBoxBrackets",          TermAttr(TC_BLACK,   TC_WHITE, false));
-    theme.yesNoBoxYesNoText         = getAttrOrDefault(kv, "YesNoBoxYesNoText",         TermAttr(TC_WHITE,   TC_WHITE, true));
+    theme.textBoxBorder             = getAttrOrDefault(kv, "TextBoxBorder",             theme.textBoxBorder);
+    theme.textBoxBorderText         = getAttrOrDefault(kv, "TextBoxBorderText",         theme.textBoxBorderText);
+    theme.textBoxInnerText          = getAttrOrDefault(kv, "TextBoxInnerText",          theme.textBoxInnerText);
+    theme.yesNoBoxBrackets          = getAttrOrDefault(kv, "YesNoBoxBrackets",          theme.yesNoBoxBrackets);
+    theme.yesNoBoxYesNoText         = getAttrOrDefault(kv, "YesNoBoxYesNoText",         theme.yesNoBoxYesNoText);
 
-    theme.listBoxBorder             = getAttrOrDefault(kv, "listBoxBorder",             TermAttr(TC_GREEN,   TC_BLACK, false));
-    theme.listBoxBorderText         = getAttrOrDefault(kv, "listBoxBorderText",         TermAttr(TC_BLUE,    TC_BLACK, true));
-    theme.listBoxItemText           = getAttrOrDefault(kv, "listBoxItemText",           TermAttr(TC_CYAN,    TC_BLACK, false));
-    theme.listBoxItemHighlight      = getAttrOrDefault(kv, "listBoxItemHighlight",      TermAttr(TC_WHITE,   TC_BLUE,  true));
+    theme.listBoxBorder             = getAttrOrDefault(kv, "listBoxBorder",             theme.listBoxBorder);
+    theme.listBoxBorderText         = getAttrOrDefault(kv, "listBoxBorderText",         theme.listBoxBorderText);
+    theme.listBoxItemText           = getAttrOrDefault(kv, "listBoxItemText",           theme.listBoxItemText);
+    theme.listBoxItemHighlight      = getAttrOrDefault(kv, "listBoxItemHighlight",      theme.listBoxItemHighlight);
 
     return theme;
 }
