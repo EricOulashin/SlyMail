@@ -199,6 +199,10 @@ $(OBJDIR)/test_text_input.o: tests/test_text_input.cpp $(SRCDIR)/text_input.h $(
 $(OBJDIR)/test_wrap_quote_lines.o: tests/test_wrap_quote_lines.cpp $(SRCDIR)/text_utils.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+# Linux release package
+linuxReleasePkg: $(OBJDIR) $(TARGET) $(CONFIG_TARGET)
+	bash ./makeLinuxReleasePkg.sh
+
 # Run all tests
 runtest: test
 	./$(TEST_TEXT_INPUT)
