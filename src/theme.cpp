@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "terminal.h"
 
 #include <fstream>
 #include <sstream>
@@ -13,13 +14,11 @@ using std::map;
 // Synchronet attribute string parser
 // ============================================================
 
-vector<TermAttr> parseSyncAttr(const string& attrStr)
+TermAttr parseSyncAttr(const string& attrStr)
 {
-    vector<TermAttr> attrs;
+    // Synchronet Ctrl-A codes:
+    // https://wiki.synchro.net/custom:ctrl-a_codes
 
-    // Each color value implicitly starts from the "normal" attribute:
-    // white foreground, black background, not bright.
-    // This matches Synchronet Ctrl-A behavior where 'n' resets all attributes.
     int fg = TC_WHITE;
     int bg = TC_BLACK;
     bool bright = false;
@@ -32,82 +31,64 @@ vector<TermAttr> parseSyncAttr(const string& attrStr)
                 fg = TC_WHITE;
                 bg = TC_BLACK;
                 bright = false;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'k': case 'K':
                 fg = TC_BLACK;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'r': case 'R':
                 fg = TC_RED;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'g': case 'G':
                 fg = TC_GREEN;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'y': case 'Y':
                 fg = TC_YELLOW;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'b': case 'B':
                 fg = TC_BLUE;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'm': case 'M':
                 fg = TC_MAGENTA;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'c': case 'C':
                 fg = TC_CYAN;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'w': case 'W':
                 fg = TC_WHITE;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case 'h': case 'H':
                 bright = true;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '0':
                 bg = TC_BLACK;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '1':
                 bg = TC_RED;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '2':
                 bg = TC_GREEN;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '3':
                 bg = TC_YELLOW;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '4':
                 bg = TC_BLUE;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '5':
                 bg = TC_MAGENTA;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '6':
                 bg = TC_CYAN;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             case '7':
                 bg = TC_WHITE;
-                attrs.emplace_back(TermAttr(fg, bg, bright));
                 break;
             default:
                 break;
         }
     }
 
-    return attrs;
+    return TermAttr(fg, bg, bright);
 }
 
 // ============================================================
@@ -180,16 +161,16 @@ map<string, string> readIniFile(const string& path)
 }
 
 // Helper: look up a key in the map and parse it, or return a default
-vector<TermAttr> getAttrOrDefault(const map<string, string>& kvMap,
-                                  const string& key,
-                                  const vector<TermAttr>& defaultAttrs)
+TermAttr getAttrOrDefault(const map<string, string>& kvMap,
+                          const string& key,
+                          const TermAttr& defaultAttr)
 {
     auto it = kvMap.find(key);
     if (it != kvMap.end() && !it->second.empty())
     {
         return parseSyncAttr(it->second);
     }
-    return defaultAttrs;
+    return defaultAttr;
 }
 
 // ============================================================
@@ -199,7 +180,6 @@ vector<TermAttr> getAttrOrDefault(const map<string, string>& kvMap,
 IceTheme loadIceTheme(const string& path)
 {
     IceTheme theme;
-    theme.initDefaults();
     auto kv = readIniFile(path);
 
     theme.borderColor1              = getAttrOrDefault(kv, "BorderColor1",              theme.borderColor1);
@@ -241,7 +221,6 @@ IceTheme loadIceTheme(const string& path)
 DctTheme loadDctTheme(const string& path)
 {
     DctTheme theme;
-    theme.initDefaults();
     auto kv = readIniFile(path);
 
     theme.topBorderColor1           = getAttrOrDefault(kv, "TopBorderColor1",           theme.topBorderColor1);

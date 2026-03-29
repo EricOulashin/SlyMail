@@ -17,8 +17,8 @@ using std::vector;
 MessageEditor::MessageEditor()
     : cursorRow(0), cursorCol(0), scrollRow(0)
     , insertMode(true), currentStyle(EditorStyle::Ice)
-    , editTop(0), editBottom(0), editLeft(1), editRight(78)
-    , editWidth(78), editHeight(0)
+    , editTop(0), editBottom(0), editLeft(0), editRight(79)
+    , editWidth(80), editHeight(0)
     , quoteWindowOpen(false), quoteSelected(0), quoteScroll(0)
     , quoteWinTop(0), quoteWinHeight(0)
     , lastSearchText(""), searchStartLine(0)
@@ -89,15 +89,11 @@ void MessageEditor::init(const Settings& settings, const string& baseDir)
     const string iceThemeFilename = configDir + PATH_SEP_STR + iceFilename;
     if (fs::exists(iceThemeFilename))
         iceTheme = loadIceTheme(iceThemeFilename);
-    else
-        iceTheme.initDefaults();
     // DCT
     const string DCTFilename = settings.dctThemeFile.empty() ? "EditorDCTColors_Default.ini" : settings.dctThemeFile;
     const string DCTThemeFilename = configDir + PATH_SEP_STR + DCTFilename;
     if (fs::exists(DCTThemeFilename))
         dctTheme = loadDctTheme(DCTThemeFilename);
-    else
-        dctTheme.initDefaults();
 
     generateBorderColors();
 }
@@ -145,9 +141,9 @@ void MessageEditor::calculateLayout()
     }
     editBottom = g_term->getRows() - 2; // -2 for status bars
     editHeight = editBottom - editTop;
-    editLeft = 1;
-    editRight = g_term->getCols() - 2;
-    editWidth = editRight - editLeft + 1; // +1 because both editLeft and editRight are inclusive
+    editLeft = 0;
+    editWidth = g_term->getCols();
+    editRight = editWidth - 1;
 }
 
 void MessageEditor::prepareQuotes(const QwkMessage& msg, const Settings& settings)
@@ -258,15 +254,15 @@ void MessageEditor::prepareQuotes(const QwkMessage& msg, const Settings& setting
 void MessageEditor::drawIceHeader()
 {
     int cols = g_term->getCols();
-    TermAttr bc1 = resolveAttr(iceTheme.borderColor1);
-    TermAttr bc2 = resolveAttr(iceTheme.borderColor2);
-    TermAttr labelAt = resolveAttr(iceTheme.topLabelColor);
-    TermAttr colonAt = resolveAttr(iceTheme.topLabelColonColor);
-    TermAttr toAt    = resolveAttr(iceTheme.topToColor);
-    TermAttr fromAt  = resolveAttr(iceTheme.topFromColor);
-    TermAttr subjAt  = resolveAttr(iceTheme.topSubjectColor);
-    TermAttr timeAt  = resolveAttr(iceTheme.topTimeColor);
-    TermAttr modeAt  = resolveAttr(iceTheme.editMode);
+    TermAttr bc1 = iceTheme.borderColor1;
+    TermAttr bc2 = iceTheme.borderColor2;
+    TermAttr labelAt = iceTheme.topLabelColor;
+    TermAttr colonAt = iceTheme.topLabelColonColor;
+    TermAttr toAt    = iceTheme.topToColor;
+    TermAttr fromAt  = iceTheme.topFromColor;
+    TermAttr subjAt  = iceTheme.topSubjectColor;
+    TermAttr timeAt  = iceTheme.topTimeColor;
+    TermAttr modeAt  = iceTheme.editMode;
 
     // Row 0: Top border with cached alternating colors
     g_term->setAttr(cachedBorderColor(0, iceTopBorderColors, bc1, bc2));
@@ -317,7 +313,7 @@ void MessageEditor::drawIceHeader()
     // TL (time left - just show a placeholder) and INS/OVR
     printAt(2, cols - 14, "TL", labelAt);
     printAt(2, cols - 12, ":", colonAt);
-    printAt(2, cols - 10, "---", resolveAttr(iceTheme.topTimeLeftColor));
+    printAt(2, cols - 10, "---", iceTheme.topTimeLeftColor);
     string modeStr = insertMode ? "INS" : "OVR";
     printAt(2, cols - 5, modeStr, modeAt);
 
@@ -344,21 +340,21 @@ void MessageEditor::drawIceHeader()
 void MessageEditor::drawDctHeader()
 {
     int cols = g_term->getCols();
-    TermAttr tbc1 = resolveAttr(dctTheme.topBorderColor1);
-    TermAttr tbc2 = resolveAttr(dctTheme.topBorderColor2);
-    TermAttr ebc1 = resolveAttr(dctTheme.editAreaBorderColor1);
-    TermAttr ebc2 = resolveAttr(dctTheme.editAreaBorderColor2);
-    TermAttr labelAt  = resolveAttr(dctTheme.topLabelColor);
-    TermAttr bracketAt = resolveAttr(dctTheme.topInfoBracketColor);
-    TermAttr fromAt   = resolveAttr(dctTheme.topFromColor);
-    TermAttr fromFill = resolveAttr(dctTheme.topFromFillColor);
-    TermAttr toAt     = resolveAttr(dctTheme.topToColor);
-    TermAttr toFill   = resolveAttr(dctTheme.topToFillColor);
-    TermAttr subjAt   = resolveAttr(dctTheme.topSubjColor);
-    TermAttr subjFill = resolveAttr(dctTheme.topSubjFillColor);
-    TermAttr areaAt   = resolveAttr(dctTheme.topAreaColor);
-    TermAttr areaFill = resolveAttr(dctTheme.topAreaFillColor);
-    TermAttr timeAt   = resolveAttr(dctTheme.topTimeColor);
+    TermAttr tbc1 = dctTheme.topBorderColor1;
+    TermAttr tbc2 = dctTheme.topBorderColor2;
+    TermAttr ebc1 = dctTheme.editAreaBorderColor1;
+    TermAttr ebc2 = dctTheme.editAreaBorderColor2;
+    TermAttr labelAt  = dctTheme.topLabelColor;
+    TermAttr bracketAt = dctTheme.topInfoBracketColor;
+    TermAttr fromAt   = dctTheme.topFromColor;
+    TermAttr fromFill = dctTheme.topFromFillColor;
+    TermAttr toAt     = dctTheme.topToColor;
+    TermAttr toFill   = dctTheme.topToFillColor;
+    TermAttr subjAt   = dctTheme.topSubjColor;
+    TermAttr subjFill = dctTheme.topSubjFillColor;
+    TermAttr areaAt   = dctTheme.topAreaColor;
+    TermAttr areaFill = dctTheme.topAreaFillColor;
+    TermAttr timeAt   = dctTheme.topTimeColor;
 
     // Row 0: Top border with cached alternating colors
     g_term->setAttr(cachedBorderColor(0, dctTopBorderColors, tbc1, tbc2));
@@ -443,7 +439,7 @@ void MessageEditor::drawDctHeader()
     printAt(2, leftX + 1, " Left ", labelAt);
     g_term->setAttr(bracketAt);
     g_term->putCP437(2, leftX + 7, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-    printAt(2, leftX + 8, " --- ", resolveAttr(dctTheme.topTimeLeftColor));
+    printAt(2, leftX + 8, " --- ", dctTheme.topTimeLeftColor);
 
     // Row 3: Subj | value...
     g_term->setAttr(cachedBorderColor(3, dctVertLeftColors, tbc1, tbc2));
@@ -464,8 +460,8 @@ void MessageEditor::drawDctHeader()
     g_term->putCP437(4, cols - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT);
 
     // INS/OVR in border
-    TermAttr modeBracket = resolveAttr(dctTheme.editModeBrackets);
-    TermAttr modeText    = resolveAttr(dctTheme.editMode);
+    TermAttr modeBracket = dctTheme.editModeBrackets;
+    TermAttr modeText    = dctTheme.editMode;
     int mx = cols - 7;
     printAt(4, mx, "[", modeBracket);
     printAt(4, mx + 1, insertMode ? "INS" : "OVR", modeText);
@@ -480,10 +476,10 @@ void MessageEditor::drawIceStatusBar()
 {
     int cols = g_term->getCols();
     int rows = g_term->getRows();
-    TermAttr bc1 = resolveAttr(iceTheme.borderColor1);
-    TermAttr bc2 = resolveAttr(iceTheme.borderColor2);
+    TermAttr bc1 = iceTheme.borderColor1;
+    TermAttr bc2 = iceTheme.borderColor2;
     TermAttr regAt   = tAttr(TC_GREEN, TC_BLACK, false);
-    TermAttr ctrlAt  = resolveAttr(iceTheme.keyInfoLabelColor);
+    TermAttr ctrlAt  = iceTheme.keyInfoLabelColor;
     TermAttr keyAt   = IceColors::keyLetter();
     TermAttr helpAt  = tAttr(TC_GREEN, TC_BLACK, false);
     TermAttr copyAt  = tAttr(TC_CYAN, TC_BLACK, false);
@@ -557,12 +553,12 @@ void MessageEditor::drawDctStatusBar()
 {
     int cols = g_term->getCols();
     int rows = g_term->getRows();
-    TermAttr ebc1 = resolveAttr(dctTheme.editAreaBorderColor1);
-    TermAttr ebc2 = resolveAttr(dctTheme.editAreaBorderColor2);
-    TermAttr bracketAt = resolveAttr(dctTheme.bottomHelpBrackets);
-    TermAttr keyAt     = resolveAttr(dctTheme.bottomHelpKeys);
-    TermAttr descAt    = resolveAttr(dctTheme.bottomHelpKeyDesc);
-    TermAttr modeAt    = resolveAttr(dctTheme.editMode);
+    TermAttr ebc1 = dctTheme.editAreaBorderColor1;
+    TermAttr ebc2 = dctTheme.editAreaBorderColor2;
+    TermAttr bracketAt = dctTheme.bottomHelpBrackets;
+    TermAttr keyAt     = dctTheme.bottomHelpKeys;
+    TermAttr descAt    = dctTheme.bottomHelpKeyDesc;
+    TermAttr modeAt    = dctTheme.editMode;
 
     // Bottom border of edit area (cached colors)
     int y = rows - 2;
@@ -574,7 +570,7 @@ void MessageEditor::drawDctStatusBar()
 
     // Status line (centered, matching DCT style)
     y = rows - 1;
-    fillRow(y, resolveAttr(dctTheme.bottomHelpFill));
+    fillRow(y, dctTheme.bottomHelpFill);
 
     // Calculate total width to center the help text
     // Format: [CTRL Z] Save  [CTRL A] Abort  [CTRL Q] Quote  [ESC] Menu
@@ -623,7 +619,6 @@ void MessageEditor::drawDctStatusBar()
 // Draw the edit area content
 void MessageEditor::drawEditArea()
 {
-    int cols = g_term->getCols();
     TermAttr borderAttr;
     if (currentStyle == EditorStyle::Ice)
     {
@@ -664,14 +659,9 @@ void MessageEditor::drawEditArea()
         int lineIdx = scrollRow + i;
         int y = editTop + i;
 
-        // Clear between borders
+        // Clear the edit area row
         g_term->setAttr(textAttr);
-        g_term->fillRegion(y, editLeft, editRight + 1, ' ');
-
-        // Side borders
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(y, 0, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-        g_term->putCP437(y, cols - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+        g_term->fillRegion(y, editLeft, editWidth, ' ');
 
         if (lineIdx < static_cast<int>(lines.size()))
         {
@@ -737,35 +727,52 @@ void MessageEditor::drawQuoteWindow()
         return;
     }
 
-    int cols = g_term->getCols();
-    TermAttr borderAttr, titleAttr, textAttr, selAttr, helpAttr;
+    TermAttr textAttr, selAttr, helpAttr;
     if (currentStyle == EditorStyle::Ice)
     {
-        borderAttr = IceColors::quoteBorder();
-        titleAttr  = IceColors::topLabel();
-        textAttr   = IceColors::editText();
-        selAttr    = IceColors::quoteHl();
-        helpAttr   = IceColors::keyLabel();
+        textAttr   = iceTheme.quoteWinText;
+        selAttr    = iceTheme.quoteLineHighlightColor;
+        helpAttr   = iceTheme.quoteWinBorderTextColor;
     }
     else
     {
-        // DCT quote window: use loaded theme colors
-        borderAttr = resolveAttr(dctTheme.quoteWinBorderColor);
-        titleAttr  = resolveAttr(dctTheme.quoteWinBorderTextColor);
-        textAttr   = resolveAttr(dctTheme.quoteWinText);
-        selAttr    = resolveAttr(dctTheme.quoteLineHighlightColor);
-        helpAttr   = resolveAttr(dctTheme.quoteWinBorderTextColor);
+        textAttr   = dctTheme.quoteWinText;
+        selAttr    = dctTheme.quoteLineHighlightColor;
+        helpAttr   = dctTheme.quoteWinBorderTextColor;
     }
 
     quoteWinTop = editTop + editHeight - quoteWinHeight;
     int contentHeight = quoteWinHeight - 2;
 
     // Top border with "Quote Window" label
-    g_term->setAttr(borderAttr);
-    g_term->putCP437(quoteWinTop, 0, CP437_BOX_DRAWINGS_UPPER_LEFT_SINGLE);
-    g_term->drawHLine(quoteWinTop, 1, cols - 2);
-    g_term->putCP437(quoteWinTop, cols - 1, CP437_BOX_DRAWINGS_UPPER_RIGHT_SINGLE);
-    printAt(quoteWinTop, 2, " Quote Window ", titleAttr);
+    if (currentStyle == EditorStyle::Ice)
+    {
+        // Ice mode
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(quoteWinTop, 0, CP437_BOX_DRAWINGS_UPPER_LEFT_SINGLE);
+        g_term->putCP437(quoteWinTop, 1, CP437_LEFT_HALF_BLOCK);
+        printAt(quoteWinTop, 2, "Quote Window", iceTheme.quoteWinBorderTextColor);
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(quoteWinTop, 14, CP437_RIGHT_HALF_BLOCK);
+        const int lastCol = editWidth-1;
+        for (int col = 15; col < lastCol; ++col)
+        {
+            g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+            g_term->putCP437(quoteWinTop, col, CP437_BOX_DRAWINGS_DOUBLE_HORIZONTAL);
+        }
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(quoteWinTop, editWidth, CP437_BOX_DRAWINGS_DOWN_SINGLE_AND_LEFT_DOUBLE);
+        //g_term->putCP437(quoteWinTop, editWidth - 1, CP437_BOX_DRAWINGS_VERTICAL_SINGLE_AND_HORIZONTAL_DOUBLE);
+    }
+    else
+    {
+        // DCT mode
+        g_term->setAttr(dctTheme.quoteWinBorderColor);
+        g_term->putCP437(quoteWinTop, 0, CP437_BOX_DRAWINGS_UPPER_LEFT_SINGLE);
+        g_term->drawHLine(quoteWinTop, 1, editWidth - 2);
+        g_term->putCP437(quoteWinTop, editWidth - 1, CP437_BOX_DRAWINGS_UPPER_RIGHT_SINGLE);
+        printAt(quoteWinTop, 2, " Quote Window ", dctTheme.quoteWinBorderTextColor);
+    }
 
     // Quote lines
     for (int i = 0; i < contentHeight; ++i)
@@ -775,28 +782,25 @@ void MessageEditor::drawQuoteWindow()
 
         // Clear interior
         g_term->setAttr(textAttr);
-        g_term->fillRegion(y, 1, cols - 1, ' ');
-
-        g_term->setAttr(borderAttr);
-        g_term->putCP437(y, 0, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-        g_term->putCP437(y, cols - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+        g_term->fillRegion(y, 0, editWidth, ' ');
 
         if (lineIdx < static_cast<int>(quoteLines.size()))
         {
             bool isSel = (lineIdx == quoteSelected);
             if (isSel)
             {
-                fillRow(y, selAttr, 1, cols - 1);
-                printAt(y, 1, truncateStr(quoteLines[lineIdx], cols - 3), selAttr);
+                fillRow(y, selAttr, 0, editWidth);
+                printAt(y, 0, truncateStr(quoteLines[lineIdx], editWidth - 1), selAttr);
             }
             else
             {
-                printAt(y, 1, truncateStr(quoteLines[lineIdx], cols - 3), textAttr);
+                printAt(y, 0, truncateStr(quoteLines[lineIdx], editWidth - 1), textAttr);
             }
         }
     }
 
-    // Scrollbar on the right border if content overflows
+    // Scrollbar on the right border if content overflows (SlyEdit for Synchronet doesn't do this)
+    /*
     int totalQuoteLines = static_cast<int>(quoteLines.size());
     if (totalQuoteLines > contentHeight)
     {
@@ -805,21 +809,65 @@ void MessageEditor::drawQuoteWindow()
                      tAttr(TC_BLACK, TC_BLACK, true),
                      tAttr(TC_WHITE, TC_BLACK, true));
     }
+    */
 
     // Bottom border with instructions
-    int bottomY = quoteWinTop + quoteWinHeight - 1;
-    g_term->setAttr(borderAttr);
-    g_term->putCP437(bottomY, 0, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
-    g_term->drawHLine(bottomY, 1, cols - 2);
-    g_term->putCP437(bottomY, cols - 1, CP437_BOX_DRAWINGS_LOWER_RIGHT_SINGLE);
-
-    string helpStr = " ^Q/ESC=End | CR=Accept | Up/Down/PgUp/PgDn/Home/End=Scroll ";
-    int helpX = (cols - static_cast<int>(helpStr.size())) / 2;
-    if (helpX < 1)
+    //const int bottomY = quoteWinTop + quoteWinHeight - 1;
+    const int bottomY = quoteWinTop + quoteWinHeight;
+    if (currentStyle == EditorStyle::Ice)
     {
-        helpX = 1;
+        // Ice mode
+        int col = 0;
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(bottomY, col++, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
+        // 1st section
+        string helpStr = "^Q/ESC=End";
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(bottomY, col++, CP437_LEFT_HALF_BLOCK);
+        g_term->setAttr(iceTheme.quoteWinBorderTextColor);
+        printAt(bottomY, col, helpStr, iceTheme.quoteWinBorderTextColor);
+        col += (int)helpStr.length();
+        // 2nd section
+        helpStr = "CR=Accept";
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(bottomY, col++, CP437_RIGHT_HALF_BLOCK);
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(bottomY, col++, CP437_LEFT_HALF_BLOCK);
+        g_term->setAttr(iceTheme.quoteWinBorderTextColor);
+        printAt(bottomY, col, helpStr, iceTheme.quoteWinBorderTextColor);
+        col += (int)helpStr.length();
+        // 3rd section
+        helpStr = "Up/Down/PgUp/PgDn/Home/End=Scroll";
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(bottomY, col++, CP437_RIGHT_HALF_BLOCK);
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(bottomY, col++, CP437_LEFT_HALF_BLOCK);
+        g_term->setAttr(iceTheme.quoteWinBorderTextColor);
+        printAt(bottomY, col, helpStr, iceTheme.quoteWinBorderTextColor);
+        col += (int)helpStr.length();
+        // Rest of the border
+        const int lastCol = editWidth-1;
+        for (; col < lastCol; ++col)
+        {
+            g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+            g_term->putCP437(quoteWinTop, col, CP437_BOX_DRAWINGS_DOUBLE_HORIZONTAL);
+        }
+        g_term->setAttr(randomBorderColor(iceTheme.borderColor1, iceTheme.borderColor2));
+        g_term->putCP437(bottomY, col, CP437_BOX_DRAWINGS_UP_SINGLE_AND_LEFT_DOUBLE);
     }
-    printAt(bottomY, helpX, helpStr, helpAttr);
+    else
+    {
+        // DCT mode
+        g_term->setAttr(dctTheme.quoteWinBorderColor);
+        g_term->putCP437(bottomY, 0, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
+        const string helpStr = " ^Q/ESC=End | CR=Accept | Up/Down/PgUp/PgDn/Home/End=Scroll ";
+        g_term->drawHLine(bottomY, 1, editWidth - 2);
+        g_term->putCP437(bottomY, editWidth - 1, CP437_BOX_DRAWINGS_LOWER_RIGHT_SINGLE);
+        int helpX = (editWidth - static_cast<int>(helpStr.length())) / 2;
+        if (helpX < 1)
+            helpX = 1;
+        printAt(bottomY, helpX, helpStr, helpAttr);
+    }
 }
 
 // ICE-style yes/no prompt on the bottom row
@@ -828,10 +876,10 @@ bool MessageEditor::promptYesNoIce(const string& question)
     int rows = g_term->getRows();
     int y = rows - 1;
 
-    TermAttr selBdr  = resolveAttr(iceTheme.selectedOptionBorderColor);
-    TermAttr selTxt  = resolveAttr(iceTheme.selectedOptionTextColor);
-    TermAttr unsBdr  = resolveAttr(iceTheme.unselectedOptionBorderColor);
-    TermAttr unsTxt  = resolveAttr(iceTheme.unselectedOptionTextColor);
+    TermAttr selBdr  = iceTheme.selectedOptionBorderColor;
+    TermAttr selTxt  = iceTheme.selectedOptionTextColor;
+    TermAttr unsBdr  = iceTheme.unselectedOptionBorderColor;
+    TermAttr unsTxt  = iceTheme.unselectedOptionTextColor;
 
     bool selectedYes = true;
 
@@ -840,7 +888,7 @@ bool MessageEditor::promptYesNoIce(const string& question)
         fillRow(y, tAttr(TC_BLACK, TC_BLACK, false));
 
         // Draw question
-        printAt(y, 1, question + "? ", resolveAttr(iceTheme.topLabelColor));
+        printAt(y, 1, question + "? ", iceTheme.topLabelColor);
 
         int optX = 1 + static_cast<int>(question.size()) + 2;
 
@@ -908,11 +956,11 @@ bool MessageEditor::promptYesNoDct(const string& question, const string& title)
     int dlgY = (rows - dlgH) / 2;
     int dlgX = (cols - dlgW) / 2;
 
-    TermAttr borderAttr = resolveAttr(dctTheme.textBoxBorder);
-    TermAttr titleAttr  = resolveAttr(dctTheme.textBoxBorderText);
-    TermAttr textAttr   = resolveAttr(dctTheme.textBoxInnerText);
-    TermAttr brkAttr    = resolveAttr(dctTheme.yesNoBoxBrackets);
-    TermAttr ynAttr     = resolveAttr(dctTheme.yesNoBoxYesNoText);
+    TermAttr borderAttr = dctTheme.textBoxBorder;
+    TermAttr titleAttr  = dctTheme.textBoxBorderText;
+    TermAttr textAttr   = dctTheme.textBoxInnerText;
+    TermAttr brkAttr    = dctTheme.yesNoBoxBrackets;
+    TermAttr ynAttr     = dctTheme.yesNoBoxYesNoText;
 
     bool selectedYes = true;
 
@@ -1096,7 +1144,6 @@ bool MessageEditor::handleQuoteWindow()
 
     while (quoteWindowOpen)
     {
-        int cols          = g_term->getCols();
         int qWinTop       = editTop + editHeight - quoteWinHeight;
         int contentHeight = quoteWinHeight - 2;
 
@@ -1124,26 +1171,24 @@ bool MessageEditor::handleQuoteWindow()
             bool isSel = (lineIdx == quoteSelected);
 
             g_term->setAttr(qTextAttr);
-            g_term->fillRegion(y, 1, cols - 1, ' ');
-            g_term->setAttr(qBorderAttr);
-            g_term->putCP437(y, 0, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
-            g_term->putCP437(y, cols - 1, CP437_BOX_DRAWINGS_LIGHT_VERTICAL);
+            g_term->fillRegion(y, 0, editWidth, ' ');
 
             if (lineIdx < static_cast<int>(quoteLines.size()))
             {
                 if (isSel)
                 {
-                    fillRow(y, qSelAttr, 1, cols - 1);
-                    printAt(y, 1, truncateStr(quoteLines[lineIdx], cols - 3), qSelAttr);
+                    fillRow(y, qSelAttr, 0, editWidth);
+                    printAt(y, 0, truncateStr(quoteLines[lineIdx], editWidth - 1), qSelAttr);
                 }
                 else
                 {
-                    printAt(y, 1, truncateStr(quoteLines[lineIdx], cols - 3), qTextAttr);
+                    printAt(y, 0, truncateStr(quoteLines[lineIdx], editWidth - 1), qTextAttr);
                 }
             }
         };
 
-        // Lambda: redraw the quote-window scrollbar
+        // Lambda: redraw the quote-window scrollbar (SlyEdit for Synchronet doesn't do this)
+        /*
         auto drawQSB = [&]()
         {
             int totalQL = static_cast<int>(quoteLines.size());
@@ -1154,6 +1199,7 @@ bool MessageEditor::handleQuoteWindow()
                              tAttr(TC_WHITE, TC_BLACK, true));
             }
         };
+        */
 
         // --- Draw decision ---
         bool qScrollChanged = (quoteScroll != prevQScroll);
@@ -1167,10 +1213,10 @@ bool MessageEditor::handleQuoteWindow()
         }
         else if (quoteSelected != prevQSel)
         {
-            // Partial update: deselect old row, select new row, refresh scrollbar
+            // Partial update: deselect old row, select new row
             drawQRow(prevQSel);
             drawQRow(quoteSelected);
-            drawQSB();
+            //drawQSB();
         }
 
         g_term->refresh();
@@ -1893,13 +1939,15 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
             {
                 drawIceHeader();
                 drawEditArea();
-                drawIceStatusBar();
+                if (!quoteWindowOpen)
+                    drawIceStatusBar();
             }
             else
             {
                 drawDctHeader();
                 drawEditArea();
-                drawDctStatusBar();
+                if (!quoteWindowOpen)
+                    drawDctStatusBar();
             }
             if (quoteWindowOpen)
             {
@@ -1913,13 +1961,12 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
         {
             // Content changed or scrolled — redraw the edit area and status bar
             drawEditArea();
-            if (currentStyle == EditorStyle::Ice)
+            if (!quoteWindowOpen)
             {
-                drawIceStatusBar();
-            }
-            else
-            {
-                drawDctStatusBar();
+                if (currentStyle == EditorStyle::Ice)
+                    drawIceStatusBar();
+                else
+                    drawDctStatusBar();
             }
             if (quoteWindowOpen)
             {
@@ -2173,7 +2220,7 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
                 {
                     cursorCol = eraseBackward(lines[cursorRow].text, cursorCol);
                     // After deleting, pull words up from the next line if room
-                    pullUpWords(lines, cursorRow, editWidth);
+                    pullUpWords(lines, cursorRow, editWidth - 1);
                 }
                 else if (cursorRow > 0)
                 {
@@ -2196,7 +2243,7 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
                 {
                     eraseForward(lines[cursorRow].text, cursorCol);
                     // After deleting, pull words up from the next line if room
-                    pullUpWords(lines, cursorRow, editWidth);
+                    pullUpWords(lines, cursorRow, editWidth - 1);
                 }
                 else if (cursorRow < static_cast<int>(lines.size()) - 1)
                 {
@@ -2470,26 +2517,27 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
                     int lineDisplayWidth = byteColToDisplayCol(
                         lines[cursorRow].text,
                         static_cast<int>(lines[cursorRow].text.size()));
-                    if (lineDisplayWidth > editWidth)
+                    int maxLineWidth = editWidth - 1;
+                    if (lineDisplayWidth > maxLineWidth)
                     {
                         // Find wrap position: walk from byte end backwards
-                        // looking for a space at or before the editWidth display column
+                        // looking for a space at or before the max line width
                         int wrapPos = static_cast<int>(lines[cursorRow].text.size());
                         for (int w = wrapPos; w > 0; --w)
                         {
-                            if (byteColToDisplayCol(lines[cursorRow].text, w) <= editWidth
+                            if (byteColToDisplayCol(lines[cursorRow].text, w) <= maxLineWidth
                                 && lines[cursorRow].text[w - 1] == ' ')
                             {
                                 wrapPos = w;
                                 break;
                             }
                         }
-                        // If no space found, wrap at the byte position closest to editWidth display cols
+                        // If no space found, wrap at the byte position closest to max line width
                         if (wrapPos == static_cast<int>(lines[cursorRow].text.size()))
                         {
                             for (int w = 0; w < static_cast<int>(lines[cursorRow].text.size()); ++w)
                             {
-                                if (byteColToDisplayCol(lines[cursorRow].text, w) >= editWidth)
+                                if (byteColToDisplayCol(lines[cursorRow].text, w) >= maxLineWidth)
                                 {
                                     wrapPos = w;
                                     break;
@@ -2597,13 +2645,13 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
                             int cDispW = byteColToDisplayCol(
                                 lines[cascadeRow].text,
                                 static_cast<int>(lines[cascadeRow].text.size()));
-                            if (cDispW <= editWidth) break; // Line fits, stop cascading
+                            if (cDispW <= maxLineWidth) break; // Line fits, stop cascading
 
                             // Find wrap point
                             int nwp = static_cast<int>(lines[cascadeRow].text.size());
                             for (int w = nwp; w > 0; --w)
                             {
-                                if (byteColToDisplayCol(lines[cascadeRow].text, w) <= editWidth
+                                if (byteColToDisplayCol(lines[cascadeRow].text, w) <= maxLineWidth
                                     && lines[cascadeRow].text[w - 1] == ' ')
                                 {
                                     nwp = w;

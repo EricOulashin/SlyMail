@@ -165,15 +165,6 @@ struct TermAttr
     }
 };
 
-// Resolve a vector of TermAttr (from theme parsing) to the final effective attribute.
-// Each entry in the vector represents a cumulative attribute state; the last one
-// is the final result.  Returns a default (white on black) if the vector is empty.
-inline TermAttr resolveAttr(const std::vector<TermAttr>& attrs)
-{
-    if (attrs.empty()) return TermAttr();
-    return attrs.back();
-}
-
 // Convenience function to create a TermAttr
 inline TermAttr tAttr(int fg, int bg = TC_BLACK, bool bright = false)
 {

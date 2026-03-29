@@ -484,7 +484,7 @@ When spell-checking is triggered, the checker scans the message for misspelled w
 
 ## Credits
 
-- UI inspired by [DDMsgReader](https://github.com/SynchronetBBS/sbbs) and [SlyEdit](https://github.com/SynchronetBBS/sbbs) by [Nightfox (Eric Oulashin)](https://github.com/nightfox)
+- UI inspired by [DDMsgReader](https://github.com/SynchronetBBS/sbbs) and [SlyEdit](https://github.com/SynchronetBBS/sbbs) by [Nightfox (Eric Oulashin)](https://github.com/EricOulashin)
 - QWK format compatibility informed by [Synchronet BBS](https://www.synchro.net/) source code
 - CP437 character definitions from Synchronet
 
