@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/bin/bash
 
 cd docs
 ./generate_docs.sh
