@@ -2519,6 +2519,7 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
 
                     string remainder = lines[cursorRow].text.substr(splitPos);
                     lines[cursorRow].text = lines[cursorRow].text.substr(0, splitPos);
+                    lines[cursorRow].hardBreak = true;
                     EditorLine newLine;
                     newLine.text = remainder;
                     lines.insert(lines.begin() + cursorRow + 1, newLine);
@@ -2811,47 +2812,103 @@ EditorResult MessageEditor::run(Settings& settings, const string& baseDir)
     }
 }
 
+// Helper: strip all ANSI escape sequences from a string, returning only visible text.
+static string stripAnsiCodes(const string& s)
+{
+    string result;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        if (static_cast<uint8_t>(s[i]) == 0x1B && i + 1 < s.size() && s[i + 1] == '[')
+        {
+            i += 2;
+            while (i < s.size() && s[i] >= 0x20 && s[i] <= 0x3F) ++i;
+            // skip final byte
+            continue;
+        }
+        result += s[i];
+    }
+    return result;
+}
+
 string MessageEditor::getBody() const
 {
-    // Build the message body, joining soft-wrapped non-quote paragraphs
-    // into single long lines. Quote lines and hard-break lines are kept as-is.
-    // This allows recipients' readers to re-wrap the text to their own width.
-    string body;
-    int cols = g_term->getCols();
-    int shortLineThreshold = cols * 30 / 100; // 30% of terminal width
+    // Build the message body by joining soft-wrapped non-quote lines into
+    // single long paragraph lines.  This matches how SlyEdit for Synchronet
+    // saves messages: each paragraph of user-typed text becomes one long line,
+    // allowing the recipient's reader to word-wrap it to their own terminal
+    // width.  Quote lines are preserved exactly as-is.
+    //
+    // The joining logic: accumulate non-quote, non-empty lines that don't
+    // have hardBreak set.  When a line has hardBreak (user pressed Enter),
+    // or when a quote line or empty line is reached, the accumulated paragraph
+    // is emitted and a new one starts.
+    vector<string> outputLines;
 
-    for (size_t i = 0; i < lines.size(); ++i)
+    size_t i = 0;
+    while (i < lines.size())
     {
-        body += lines[i].text;
-
-        // Determine whether to emit a newline or join with the next line
-        bool emitNewline = true;
-        if (i + 1 < lines.size())
+        // Quote lines: output as-is
+        if (lines[i].isQuoteLine)
         {
-            // Join conditions: current line is NOT a quote line, next line is
-            // NOT a quote line, current line has no hard break, and the current
-            // line isn't short enough to look like a separate paragraph
-            bool curIsQuote = lines[i].isQuoteLine;
-            bool nextIsQuote = lines[i + 1].isQuoteLine;
-            bool curHasHardBreak = lines[i].hardBreak;
-            bool curIsEmpty = lines[i].text.empty();
-            bool nextIsEmpty = lines[i + 1].text.empty();
-            int curDisplayWidth = byteColToDisplayCol(lines[i].text,
-                static_cast<int>(lines[i].text.size()));
-            bool curIsShort = (curDisplayWidth > 0 && curDisplayWidth <= shortLineThreshold);
+            outputLines.push_back(lines[i].text);
+            ++i;
+            continue;
+        }
 
-            if (!curIsQuote && !nextIsQuote && !curHasHardBreak &&
-                !curIsEmpty && !nextIsEmpty && !curIsShort)
+        // Treat lines with only ANSI codes (no visible text) as empty
+        string visibleText = stripAnsiCodes(lines[i].text);
+        bool effectivelyEmpty = visibleText.empty() ||
+            visibleText.find_first_not_of(" \t") == string::npos;
+
+        if (effectivelyEmpty)
+        {
+            outputLines.push_back("");
+            ++i;
+            continue;
+        }
+
+        // Non-quote, non-empty line: accumulate paragraph text.
+        // Join consecutive lines that don't have hardBreak set, stopping
+        // when we hit a hardBreak, empty line, or quote line.
+        string paragraph;
+        while (i < lines.size() && !lines[i].isQuoteLine)
+        {
+            // Check if this line is effectively empty (only ANSI codes / whitespace)
+            string vis = stripAnsiCodes(lines[i].text);
+            if (vis.empty() || vis.find_first_not_of(" \t") == string::npos)
+                break;
+
+            // Strip ANSI codes from the line text for the saved body
+            string cleanText = stripAnsiCodes(lines[i].text);
+
+            if (!paragraph.empty())
             {
-                // Join: add a space instead of a newline
-                body += ' ';
-                emitNewline = false;
+                // Add a space to join words at the wrap boundary
+                if (paragraph.back() != ' ' &&
+                    !cleanText.empty() && cleanText[0] != ' ')
+                {
+                    paragraph += ' ';
+                }
             }
+            paragraph += cleanText;
+            bool wasHardBreak = lines[i].hardBreak;
+            ++i;
+            if (wasHardBreak) break; // Hard break ends the paragraph
         }
-        if (emitNewline && i + 1 < lines.size())
+
+        if (!paragraph.empty())
         {
-            body += "\n";
+            outputLines.push_back(paragraph);
         }
+    }
+
+    // Join output lines with newlines
+    string body;
+    for (size_t j = 0; j < outputLines.size(); ++j)
+    {
+        body += outputLines[j];
+        if (j + 1 < outputLines.size())
+            body += "\n";
     }
     return body;
 }
