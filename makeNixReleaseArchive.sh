@@ -34,9 +34,9 @@ sed "s/<VERSION>/$version/g" FILE_ID_Template.DIZ |sed "s/<OS>/${OSName}/g" |sed
 
 # Make the zip file (unless --no-zip is passed, e.g. for CI artifact uploads)
 if [ "$1" = "--no-zip" ]; then
-    cp FILE_ID.DIZ "$releaseDirName/"
-    rm FILE_ID.DIZ
+    # Keep FILE_ID.DIZ alongside the release directory (not inside it)
     echo "Release directory prepared: $releaseDirName"
+    echo "FILE_ID.DIZ created alongside the release directory"
 else
     zip -r -9 "SlyMail_${versionWithoutDot}_${OSName}.zip" FILE_ID.DIZ "$releaseDirName"
     rm -rf "$releaseDirName"

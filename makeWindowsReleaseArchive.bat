@@ -47,9 +47,9 @@ powershell -Command "$today = Get-Date -Format 'yyyy-MM-dd'; (Get-Content 'FILE_
 
 REM Make the zip file (unless --no-zip is passed, e.g. for CI artifact uploads)
 if /i "%~1"=="--no-zip" (
-    copy /y FILE_ID.DIZ "%releaseDirName%\" >nul
-    del FILE_ID.DIZ
+    REM Keep FILE_ID.DIZ alongside the release directory (not inside it)
     echo Release directory prepared: %releaseDirName%
+    echo FILE_ID.DIZ created alongside the release directory
 ) else (
     set zipName=SlyMail_%versionWithoutDot%_%OSName%.zip
     if exist "%zipName%" del "%zipName%"

@@ -61,5 +61,8 @@ vs/Release/
 /slymail
 /config
 
+# Generated documentation screenshots (copied from project root)
+docs/html/screenshots/
+
 # QWK packet filenames
 DIGDIST.qwk
