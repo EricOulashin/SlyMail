@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -48,7 +48,7 @@ jobs:
           make nixReleaseArc RELEASE_ARC_FLAGS="--no-zip"
 
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: SlyMail-${{ steps.version.outputs.ver }}-${{ runner.os }}
           path: |
@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -82,7 +82,7 @@ jobs:
         run: makeWindowsReleaseArchive.bat --no-zip
 
       - name: Upload Windows release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: SlyMail-${{ steps.version.outputs.ver }}-Windows
           path: |
