@@ -4,6 +4,7 @@
 #include "voting.h"
 #include <iostream>
 #include <optional>
+#include <ctime>
 
 // QWK format constants
 constexpr int QWK_BLOCK_LEN = 128;
@@ -136,8 +137,9 @@ struct QwkReply
     std::string body;           // Message body
     int         replyToNum;     // Reply-to message number (0 = new msg)
     std::string editor;         // Editor identifier string (for HEADERS.DAT)
+    std::time_t timestamp;      // Session-only: when the reply was created/edited
 
-    QwkReply() : conference(0), replyToNum(0)
+    QwkReply() : conference(0), replyToNum(0), timestamp(0)
     {
     }
 };

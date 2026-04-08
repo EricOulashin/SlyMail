@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Quote line tracking**: The editor tracks which lines were inserted from the quote window, preserving their integrity during editing (no joining or pulling across quote line boundaries).
 - **Paragraph-based message saving**: Non-quote text is saved as long paragraphs (soft-wrapped lines joined), allowing recipients' readers to re-wrap text to their own terminal width. Quote lines are preserved as-is. Addresses [issue 30](https://github.com/EricOulashin/SlyMail/issues/30).
 - **Terminal resize detection**: This allows SlyMail to resize its window(s) and contents in response to the terminal window being resized.
+- **Editing already-written messages**: Added the ability to view and edit messages already written during the current session via a new hotkey ('E') from both the conference list and message list. Opens a lightbar dialog showing To/Subject/Date/Time columns; selecting a message lets you edit it with the built-in or configured external editor and prompts to save changes. Addresses [issue 23](https://github.com/EricOulashin/SlyMail/issues/23).
 
 ### Changed
 - **Quote line wrapping**: When wrapQuoteLines is enabled, quote lines are wrapped to the terminal width minus 1 (instead of a fixed width). When disabled, wraps to the standard 79-column BBS convention. Addresses [issue 21](https://github.com/EricOulashin/SlyMail/issues/21).

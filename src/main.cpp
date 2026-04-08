@@ -487,6 +487,7 @@ static EditorResult tryExternalOrBuiltinReply(
     else
         reply.editor = string(PROGRAM_NAME) + " " + PROGRAM_VERSION
                      + " (" + PROGRAM_DATE + ") (external editor: " + edCfg->name + ")";
+    reply.timestamp = std::time(nullptr);
     return EditorResult::Saved;
 }
 
@@ -554,6 +555,7 @@ static EditorResult tryExternalOrBuiltinNewMsg(
     else
         reply.editor = string(PROGRAM_NAME) + " " + PROGRAM_VERSION
                      + " (" + PROGRAM_DATE + ") (external editor: " + edCfg->name + ")";
+    reply.timestamp = std::time(nullptr);
     return EditorResult::Saved;
 }
 
@@ -775,8 +777,24 @@ int main(int argc, char* argv[])
         int selectedConf = 0;
         while (inConfList && running)
         {
+            // If the user edits a pending message and the REP packet has
+            // already been written to disk this session, silently re-write
+            // it so the on-disk copy reflects the edit.
+            auto autoResaveRep = [&]() {
+                if (!repPacketSaved) return;
+                if (!currentPacket.has_value()) return;
+                if (pendingReplies.empty() && pendingVotes.empty()) return;
+                string repDir = settings.replyDir;
+                if (repDir.empty()) repDir = dataDir + PATH_SEP_STR + "REP";
+                string repFile = repDir + PATH_SEP_STR + currentPacket->info.bbsID + ".rep";
+                createRepPacket(repFile, currentPacket->info.bbsID,
+                                settings.userName, pendingReplies, pendingVotes);
+            };
+
             ConfListResult confResult = showConferenceList(*currentPacket,
-                                                           selectedConf, settings);
+                                                           selectedConf, settings,
+                                                           &pendingReplies, baseDir,
+                                                           autoResaveRep);
 
             switch (confResult)
             {
@@ -791,7 +809,9 @@ int main(int argc, char* argv[])
                     {
                         MsgListResult msgResult = showMessageList(conf, selectedMsg,
                             settings, currentPacket->info.bbsName,
-                            getLastRead(conf.number));
+                            getLastRead(conf.number),
+                            &pendingReplies, baseDir,
+                            autoResaveRep);
 
                         switch (msgResult)
                         {

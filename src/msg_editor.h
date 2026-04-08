@@ -123,4 +123,20 @@ void postSaveProcessing(std::vector<EditorLine>& lines, Settings& settings, cons
 EditorResult editReply(const QwkMessage& origMsg, const std::string& userName, const std::string& confName, QwkReply& reply, Settings& settings, const std::string& baseDir = "");
 EditorResult editNewMessage(const std::string& userName, const std::string& confName, int confNumber, QwkReply& reply, Settings& settings, const std::string& baseDir = "");
 
+// Edit an existing in-session message body (from pendingReplies).
+// Loads the body verbatim into the editor, lets the user edit, and on save
+// returns the modified to/subject/body. 'changed' is set to true iff any of
+// the to/subject/body fields differ from the original after editing.
+EditorResult editExistingMessage(const std::string& userName,
+                                 const std::string& confName,
+                                 const std::string& origTo,
+                                 const std::string& origSubject,
+                                 const std::string& origBody,
+                                 std::string& newTo,
+                                 std::string& newSubject,
+                                 std::string& newBody,
+                                 bool& changed,
+                                 Settings& settings,
+                                 const std::string& baseDir = "");
+
 #endif // SLYMAIL_MSG_EDITOR_H

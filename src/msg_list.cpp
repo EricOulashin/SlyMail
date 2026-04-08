@@ -1,14 +1,339 @@
 #include "msg_list.h"
 #include "ui_common.h"
 #include "search.h"
+#include "msg_editor.h"
+#include <cstdio>
+#include <ctime>
+#include <fstream>
+#include <filesystem>
+#include <cstdlib>
 
 using std::string;
 using std::vector;
 using std::pair;
 
+// Forward declaration — defined in main.cpp file-locally; we implement a
+// local helper here for editing an existing pending reply that mirrors the
+// external/builtin selection logic used by the reply paths in main.cpp.
+namespace {
+
+// Format a time_t as YYYY-MM-DD
+static string formatPendingDate(std::time_t t)
+{
+    if (t == 0) return "";
+    std::tm tmv{};
+#if defined(_WIN32)
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
+                  tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday);
+    return string(buf);
+}
+
+// Format a time_t as HH:MM
+static string formatPendingTime(std::time_t t)
+{
+    if (t == 0) return "";
+    std::tm tmv{};
+#if defined(_WIN32)
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    return string(buf);
+}
+
+// Edit an existing pending reply using the external editor if one is
+// configured, else the built-in editor. Populates newTo/newSubject/newBody
+// and sets 'changed' if anything differs from the original.
+static EditorResult editPendingWithExternalOrBuiltin(
+    const string& userName,
+    const string& confName,
+    const QwkReply& orig,
+    string& newTo,
+    string& newSubject,
+    string& newBody,
+    bool& changed,
+    Settings& settings,
+    const string& baseDir)
+{
+    changed = false;
+    newTo = orig.to;
+    newSubject = orig.subject;
+    newBody = orig.body;
+
+    const auto* edCfg = (settings.useExternalEditor ? settings.getSelectedEditor() : nullptr);
+    if (!edCfg)
+    {
+        return editExistingMessage(userName, confName,
+                                   orig.to, orig.subject, orig.body,
+                                   newTo, newSubject, newBody, changed,
+                                   settings, baseDir);
+    }
+
+    // External editor: write body to a temp file, launch, read back.
+    namespace fs = std::filesystem;
+    string tmpDir = baseDir.empty() ? string(".") : baseDir;
+    string tmpFile = tmpDir + "/slymail_edit_pending.tmp";
+    {
+        std::ofstream ofs(tmpFile, std::ios::binary | std::ios::trunc);
+        if (!ofs)
+        {
+            messageDialog("Error", "Could not create temp file for external editor.");
+            return EditorResult::Aborted;
+        }
+        ofs << orig.body;
+    }
+
+    // Build the command line by substituting %f with the temp file path.
+    string cmd = edCfg->commandLine;
+    {
+        size_t pos = cmd.find("%f");
+        if (pos != string::npos)
+        {
+            cmd.replace(pos, 2, tmpFile);
+        }
+        else
+        {
+            cmd += " " + tmpFile;
+        }
+    }
+
+    g_term->shutdown();
+    int rc = std::system(cmd.c_str());
+    (void)rc;
+    g_term->init();
+
+    // Read back
+    std::ifstream ifs(tmpFile, std::ios::binary);
+    if (!ifs)
+    {
+        messageDialog("Error", "Could not read back edited file.");
+        std::error_code ec;
+        fs::remove(tmpFile, ec);
+        return EditorResult::Aborted;
+    }
+    string edited((std::istreambuf_iterator<char>(ifs)),
+                  std::istreambuf_iterator<char>());
+    ifs.close();
+    std::error_code ec;
+    fs::remove(tmpFile, ec);
+
+    newBody = edited;
+
+    // Compare, ignoring trailing newline differences
+    string a = orig.body, b = edited;
+    while (!a.empty() && (a.back() == '\n' || a.back() == '\r')) a.pop_back();
+    while (!b.empty() && (b.back() == '\n' || b.back() == '\r')) b.pop_back();
+    if (a != b)
+    {
+        changed = true;
+    }
+    return EditorResult::Saved;
+}
+
+} // namespace
+
+bool showEditPendingMessagesDialog(vector<QwkReply>& pendingReplies,
+                                   Settings& settings,
+                                   const string& baseDir,
+                                   std::function<void()> onMessageSaved)
+{
+    bool anyChanged = false;
+
+    if (pendingReplies.empty())
+    {
+        messageDialog("Edit Pending", "No messages have been written this session.");
+        return false;
+    }
+
+    int selected = 0;
+    int scrollOffset = 0;
+    bool needFullRedraw = true;
+
+    while (true)
+    {
+        int COLS = g_term->getCols();
+        int ROWS = g_term->getRows();
+
+        const int toW   = 20;
+        const int dateW = 10;
+        const int timeW = 5;
+        int subjW = COLS - toW - dateW - timeW - 6;
+        if (subjW < 10) subjW = 10;
+
+        const int listTop = 3;
+        int listHeight = ROWS - 5;
+        int total = static_cast<int>(pendingReplies.size());
+
+        if (total == 0)
+        {
+            return anyChanged;
+        }
+        if (selected >= total) selected = total - 1;
+        if (selected < 0) selected = 0;
+        if (selected < scrollOffset) scrollOffset = selected;
+        if (selected >= scrollOffset + listHeight)
+            scrollOffset = selected - listHeight + 1;
+
+        if (needFullRedraw)
+        {
+            g_term->clear();
+
+            TermAttr borderAttr = tAttr(TC_BLUE, TC_BLACK, true);
+            TermAttr titleAttr  = tAttr(TC_GREEN, TC_BLACK, true);
+
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(0, 0, CP437_BOX_DRAWINGS_UPPER_LEFT_SINGLE);
+            g_term->drawHLine(0, 1, COLS - 2);
+            g_term->putCP437(0, COLS - 1, CP437_BOX_DRAWINGS_UPPER_RIGHT_SINGLE);
+            string title = " Edit Pending Messages (" + std::to_string(total) + ") ";
+            printAt(0, 4, title, titleAttr);
+
+            g_term->setAttr(borderAttr);
+            g_term->putCP437(1, 0, CP437_BOX_DRAWINGS_LOWER_LEFT_SINGLE);
+            g_term->drawHLine(1, 1, COLS - 2);
+            g_term->putCP437(1, COLS - 1, CP437_BOX_DRAWINGS_LOWER_RIGHT_SINGLE);
+
+            TermAttr colAttr = tAttr(TC_CYAN, TC_BLACK, true);
+            printAt(2, 1, padStr("To", toW), colAttr);
+            printAt(2, 1 + toW + 1, padStr("Subject", subjW), colAttr);
+            printAt(2, 1 + toW + subjW + 2, padStr("Date", dateW), colAttr);
+            printAt(2, 1 + toW + subjW + dateW + 3, padStr("Time", timeW), colAttr);
+
+            for (int i = 0; i < listHeight && (scrollOffset + i) < total; ++i)
+            {
+                int idx = scrollOffset + i;
+                const auto& r = pendingReplies[idx];
+                int y = listTop + i;
+                bool isSel = (idx == selected);
+
+                string toDisp = r.to;
+                {
+                    string t = trimStr(toDisp);
+                    string tu;
+                    for (char c : t) tu.push_back(static_cast<char>(std::toupper((unsigned char)c)));
+                    if (t.empty() || tu == "ALL")
+                        toDisp = "All";
+                }
+
+                string dateStr = formatPendingDate(r.timestamp);
+                string timeStr = formatPendingTime(r.timestamp);
+
+                TermAttr bg = isSel
+                    ? tAttr(TC_BLUE, TC_WHITE, false)
+                    : tAttr(TC_BLACK, TC_BLACK, false);
+                fillRow(y, bg);
+
+                TermAttr toC   = isSel ? tAttr(TC_BLUE, TC_WHITE, false) : tAttr(TC_CYAN, TC_BLACK, false);
+                TermAttr subC  = isSel ? tAttr(TC_BLACK, TC_WHITE, false) : tAttr(TC_CYAN, TC_BLACK, true);
+                TermAttr dtC   = isSel ? tAttr(TC_GREEN, TC_WHITE, false) : tAttr(TC_GREEN, TC_BLACK, false);
+
+                printAt(y, 1, padStr(truncateStr(toDisp, toW), toW), toC);
+                printAt(y, 1 + toW + 1, padStr(truncateStr(r.subject, subjW), subjW), subC);
+                printAt(y, 1 + toW + subjW + 2, padStr(dateStr, dateW), dtC);
+                printAt(y, 1 + toW + subjW + dateW + 3, padStr(timeStr, timeW), dtC);
+            }
+
+            if (total > listHeight)
+            {
+                drawScrollbar(listTop, listHeight, selected, total,
+                              tAttr(TC_BLACK, TC_BLACK, true),
+                              tAttr(TC_WHITE, TC_BLACK, true));
+            }
+
+            drawDDHelpBar(ROWS - 1,
+                "Up/Dn/PgUp/PgDn/HOME/END, ",
+                {{'E', "nter=Edit"}, {'Q', "uit/ESC"}});
+
+            needFullRedraw = false;
+        }
+
+        g_term->refresh();
+
+        int ch = g_term->getKey();
+        switch (ch)
+        {
+            case TK_UP:
+                if (selected > 0) --selected;
+                needFullRedraw = true;
+                break;
+            case TK_DOWN:
+                if (selected < total - 1) ++selected;
+                needFullRedraw = true;
+                break;
+            case TK_PGUP:
+                selected -= listHeight;
+                if (selected < 0) selected = 0;
+                needFullRedraw = true;
+                break;
+            case TK_PGDN:
+                selected += listHeight;
+                if (selected >= total) selected = total - 1;
+                needFullRedraw = true;
+                break;
+            case TK_HOME:
+                selected = 0;
+                needFullRedraw = true;
+                break;
+            case TK_END:
+                selected = total - 1;
+                needFullRedraw = true;
+                break;
+            case TK_ENTER:
+            {
+                QwkReply& orig = pendingReplies[selected];
+                string newTo, newSubject, newBody;
+                bool changed = false;
+                EditorResult r = editPendingWithExternalOrBuiltin(
+                    settings.userName,
+                    "",
+                    orig,
+                    newTo, newSubject, newBody, changed,
+                    settings, baseDir);
+
+                if (r == EditorResult::Saved && changed)
+                {
+                    // The user successfully exited the editor, so save the
+                    // updated message back into the pending-replies vector
+                    // and notify the caller so the .rep packet can be
+                    // re-written if it had previously been saved to disk.
+                    orig.to = newTo;
+                    orig.subject = newSubject;
+                    orig.body = newBody;
+                    orig.timestamp = std::time(nullptr);
+                    anyChanged = true;
+                    if (onMessageSaved)
+                        onMessageSaved();
+                }
+                needFullRedraw = true;
+                break;
+            }
+            case 'q':
+            case 'Q':
+            case TK_ESCAPE:
+                return anyChanged;
+            case TK_RESIZE:
+                needFullRedraw = true;
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+
 // Show the conference list
 ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
-                                 Settings& settings)
+                                 Settings& settings,
+                                 vector<QwkReply>* pendingReplies,
+                                 const string& baseDir,
+                                 std::function<void()> onPendingEdited)
 {
     int selected = 0;
     int scrollOffset = 0;
@@ -178,7 +503,7 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
 
             drawDDHelpBar(ROWS - 1,
                 "Up/Dn/PgUp/PgDn/HOME/END, ",
-                {{'E', "nter area"}, {'/', "Search"}, {'G', "o to #"},
+                {{'E', "dit pending"}, {'/', "Search"}, {'G', "o to #"},
                  {'O', "pen file"}, {'S', "ettings"}, {'Q', "uit"}, {'?', ""}});
 
             // Show filter indicator if active
@@ -283,6 +608,14 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
                 needFullRedraw = true;
                 break;
             }
+            case 'e':
+            case 'E':
+                if (pendingReplies != nullptr)
+                {
+                    showEditPendingMessagesDialog(*pendingReplies, settings, baseDir, onPendingEdited);
+                    needFullRedraw = true;
+                }
+                break;
             case 'o':
             case 'O':
             case TK_CTRL_L:
@@ -366,6 +699,7 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
                 helpLine("PageUp/PageDown", "Scroll up/down a page");
                 helpLine("HOME/END", "Jump to first/last conference");
                 helpLine("/", "Search/filter conferences");
+                helpLine("E", "Edit pending messages (session)");
                 helpLine("V", "View polls/votes in packet");
                 helpLine("O / Ctrl-L", "Open a different QWK file");
                 helpLine("Ctrl-R", "Remote systems (download QWK)");
@@ -394,7 +728,10 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
 MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
                               Settings& settings,
                               const string& bbsName,
-                              int lastReadMsgNum)
+                              int lastReadMsgNum,
+                              vector<QwkReply>* pendingReplies,
+                              const string& baseDir,
+                              std::function<void()> onPendingEdited)
 {
     int selected  = 0;
     int scrollOffset = 0;
@@ -565,7 +902,7 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
 
             drawDDHelpBar(ROWS - 1,
                 "Up/Dn/PgUp/PgDn/HOME/END, ",
-                {{'N', "ew msg"}, {'R', "ead"}, {'/', "Search"},
+                {{'N', "ew msg"}, {'R', "ead"}, {'E', "dit pending"}, {'/', "Search"},
                  {'G', "o to #"}, {'C', "onf list"}, {'Q', "uit"}, {'?', ""}});
 
             // Show filter indicator if active
@@ -687,6 +1024,14 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
             case 'n':
             case 'N':
                 return MsgListResult::NewMessage;
+            case 'e':
+            case 'E':
+                if (pendingReplies != nullptr)
+                {
+                    showEditPendingMessagesDialog(*pendingReplies, settings, baseDir, onPendingEdited);
+                    needFullRedraw = true;
+                }
+                break;
             case 'c':
             case 'C':
             case TK_ESCAPE:
@@ -774,6 +1119,7 @@ MsgListResult showMessageList(QwkConference& conf, int& selectedMsg,
                 helpLine("Up/Down arrow", "Navigate messages");
                 helpLine("Enter / R", "Read selected message");
                 helpLine("N", "Write a new message");
+                helpLine("E", "Edit pending messages (session)");
                 helpLine("G", "Go to message number");
                 helpLine("PageUp/PageDown", "Scroll up/down a page");
                 helpLine("HOME/END", "Jump to first/last message");

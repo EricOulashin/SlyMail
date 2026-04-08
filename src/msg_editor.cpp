@@ -3410,6 +3410,79 @@ EditorResult editReply(const QwkMessage& origMsg,
         string styleStr = (editor.currentStyle == EditorStyle::Ice) ? "Ice style" : "DCT style";
         reply.editor = string(PROGRAM_NAME) + " " + PROGRAM_VERSION
                      + " (" + PROGRAM_DATE + ") (" + styleStr + ")";
+        reply.timestamp = std::time(nullptr);
+    }
+    return result;
+}
+
+EditorResult editExistingMessage(const string& userName,
+                                 const string& confName,
+                                 const string& origTo,
+                                 const string& origSubject,
+                                 const string& origBody,
+                                 string& newTo,
+                                 string& newSubject,
+                                 string& newBody,
+                                 bool& changed,
+                                 Settings& settings,
+                                 const string& baseDir)
+{
+    changed = false;
+
+    MessageEditor editor;
+    editor.toField = origTo.empty() ? "All" : origTo;
+    editor.fromField = userName;
+    editor.subjectField = origSubject;
+    editor.areaName = confName;
+
+    // Split origBody on '\n' and load verbatim into the editor.
+    // Mark every loaded line as a hardBreak so getBody() preserves the
+    // line boundaries instead of re-joining them into a single paragraph.
+    editor.lines.clear();
+    {
+        string cur;
+        for (char c : origBody)
+        {
+            if (c == '\n')
+            {
+                EditorLine el{cur};
+                el.hardBreak = true;
+                editor.lines.push_back(el);
+                cur.clear();
+            }
+            else if (c != '\r')
+            {
+                cur.push_back(c);
+            }
+        }
+        if (!cur.empty() || editor.lines.empty())
+        {
+            EditorLine el{cur};
+            el.hardBreak = true;
+            editor.lines.push_back(el);
+        }
+    }
+
+    EditorResult result = editor.run(settings, baseDir);
+    if (result == EditorResult::Saved)
+    {
+        string body = editor.getBody();
+        // Trim trailing newline for comparison consistency
+        newTo = editor.toField;
+        newSubject = editor.subjectField;
+        newBody = body;
+
+        string origBodyNorm = origBody;
+        string newBodyNorm = body;
+        while (!origBodyNorm.empty() && (origBodyNorm.back() == '\n' || origBodyNorm.back() == '\r'))
+            origBodyNorm.pop_back();
+        while (!newBodyNorm.empty() && (newBodyNorm.back() == '\n' || newBodyNorm.back() == '\r'))
+            newBodyNorm.pop_back();
+
+        if (newTo != origTo || newSubject != origSubject || newBodyNorm != origBodyNorm)
+        {
+            changed = true;
+        }
     }
     return result;
 }
@@ -3491,6 +3564,7 @@ EditorResult editNewMessage(const string& userName,
         string styleStr = (editor.currentStyle == EditorStyle::Ice) ? "Ice style" : "DCT style";
         reply.editor = string(PROGRAM_NAME) + " " + PROGRAM_VERSION
                      + " (" + PROGRAM_DATE + ") (" + styleStr + ")";
+        reply.timestamp = std::time(nullptr);
     }
     return result;
 }
