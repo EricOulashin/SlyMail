@@ -153,6 +153,30 @@ string showFileBrowser(const string& startDir,
     int prevScrollOffset = -1;
     vector<FileEntry> entries;
 
+    // Type-ahead incremental search. Printable characters build up a prefix
+    // and the selection jumps to the first entry whose name begins with
+    // that prefix (case-insensitive). Navigation keys clear the buffer.
+    string searchBuf;
+    auto applySearch = [&]() {
+        if (searchBuf.empty()) return;
+        auto toLower = [](const string& s) {
+            string r; r.reserve(s.size());
+            for (char c : s) r.push_back(static_cast<char>(std::tolower((unsigned char)c)));
+            return r;
+        };
+        string needle = toLower(searchBuf);
+        for (int i = 0; i < static_cast<int>(entries.size()); ++i)
+        {
+            string name = toLower(entries[i].name);
+            if (name.compare(0, needle.size(), needle) == 0)
+            {
+                selected = i;
+                return;
+            }
+        }
+        // No match — leave selection unchanged.
+    };
+
     while (true)
     {
         // Reload directory listing when the directory changes
@@ -290,6 +314,15 @@ string showFileBrowser(const string& startDir,
             string statusStr = std::to_string(selected + 1) + " of "
                 + std::to_string(entries.size()) + " items";
             printAt(LINES - 2, 1, padStr(statusStr, 30), tAttr(TC_WHITE, TC_BLACK, false));
+            // Show the current type-ahead search buffer on the right of the
+            // status line, so the user can see what they've typed.
+            int searchW = 40;
+            int searchX = COLS - searchW - 1;
+            if (searchX < 32) searchX = 32;
+            string searchDisp = searchBuf.empty() ? string()
+                                                  : (string("Search: ") + searchBuf);
+            printAt(LINES - 2, searchX, padStr(searchDisp, searchW),
+                    tAttr(TC_YELLOW, TC_BLACK, true));
         };
 
         // --- Draw decision ---
@@ -366,12 +399,16 @@ string showFileBrowser(const string& startDir,
                 {
                     --selected;
                 }
+                searchBuf.clear();
+                needFullRedraw = true;
                 break;
             case TK_DOWN:
                 if (selected < static_cast<int>(entries.size()) - 1)
                 {
                     ++selected;
                 }
+                searchBuf.clear();
+                needFullRedraw = true;
                 break;
             case TK_PGUP:
                 selected -= listHeight;
@@ -379,6 +416,8 @@ string showFileBrowser(const string& startDir,
                 {
                     selected = 0;
                 }
+                searchBuf.clear();
+                needFullRedraw = true;
                 break;
             case TK_PGDN:
                 selected += listHeight;
@@ -386,12 +425,26 @@ string showFileBrowser(const string& startDir,
                 {
                     selected = static_cast<int>(entries.size()) - 1;
                 }
+                searchBuf.clear();
+                needFullRedraw = true;
                 break;
             case TK_HOME:
                 selected = 0;
+                searchBuf.clear();
+                needFullRedraw = true;
                 break;
             case TK_END:
                 selected = static_cast<int>(entries.size()) - 1;
+                searchBuf.clear();
+                needFullRedraw = true;
+                break;
+            case TK_BACKSPACE:
+                if (!searchBuf.empty())
+                {
+                    searchBuf.pop_back();
+                    applySearch();
+                    needFullRedraw = true;
+                }
                 break;
             case TK_ENTER:
                 if (selected >= 0 && selected < static_cast<int>(entries.size()))
@@ -403,6 +456,7 @@ string showFileBrowser(const string& startDir,
                         selected     = 0;
                         scrollOffset = 0;
                         needReloadDir = true;
+                        searchBuf.clear();
                     }
                     else if (acceptAny || hasExtension(entry.name, acceptExt))
                     {
@@ -460,7 +514,6 @@ string showFileBrowser(const string& startDir,
                 needFullRedraw = true;
                 break;
             }
-            case 'q':
             case 'Q':
             case TK_ESCAPE:
                 return "";
@@ -468,6 +521,16 @@ string showFileBrowser(const string& startDir,
                 needFullRedraw = true;
                 break;
             default:
+                // Type-ahead incremental search: accept printable ASCII
+                // characters (including lowercase 'q') and jump the selection
+                // to the first entry whose name begins with the typed prefix
+                // (case-insensitive).
+                if (ch >= 32 && ch < 127)
+                {
+                    searchBuf.push_back(static_cast<char>(ch));
+                    applySearch();
+                    needFullRedraw = true;
+                }
                 break;
         }
     }

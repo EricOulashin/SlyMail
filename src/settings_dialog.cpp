@@ -1529,8 +1529,7 @@ bool showExternalEditorConfig(ExternalEditorConfig& editor)
     TermAttr selAttr    = tAttr(TC_BLUE, TC_WHITE, false);
     TermAttr valueAttr  = tAttr(TC_WHITE, TC_BLACK, true);
 
-    for (;;)
-    {
+    auto drawDialog = [&]() {
         g_term->clear();
         g_term->setAttr(borderAttr);
         g_term->drawBox(dlgY, dlgX, dlgH, dlgW);
@@ -1594,6 +1593,11 @@ bool showExternalEditorConfig(ExternalEditorConfig& editor)
         g_term->printStr(helpY, dlgX + (dlgW - static_cast<int>(helpText.size())) / 2, helpText);
 
         g_term->refresh();
+    };
+
+    for (;;)
+    {
+        drawDialog();
         int ch = g_term->getKey();
 
         switch (ch)
@@ -1667,6 +1671,10 @@ bool showExternalEditorConfig(ExternalEditorConfig& editor)
                             }
                             changed = true;
                         }
+                        // Redraw the editor-config dialog so the file browser
+                        // residue is wiped and the command-line edit happens
+                        // on a clean screen.
+                        drawDialog();
                         // Let user edit the command line string
                         {
                             int y = dlgY + 1 + selected;

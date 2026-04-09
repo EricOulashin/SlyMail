@@ -27,6 +27,9 @@
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
 
 using std::string;
 using std::vector;
@@ -349,12 +352,31 @@ static ExtEditorResult runExternalEditor(const ExternalEditorConfig& edCfg,
     // Suspend the terminal so the external editor can use it
     g_term->shutdown();
 
-    int exitCode = std::system(cmd.c_str());
+    int rawStatus = std::system(cmd.c_str());
 
     // Restore the terminal
     g_term->init();
 
-    if (exitCode == 0)
+    // Decode the exit status. On POSIX, std::system returns a wait status that
+    // must be unpacked with WIFEXITED/WEXITSTATUS; on Windows it already is the
+    // exit code.  A non-zero exit code from the editor indicates the user
+    // aborted (e.g. vim's :cq) — honor it and do NOT read back the temp file.
+    int exitCode = rawStatus;
+#ifndef _WIN32
+    if (WIFEXITED(rawStatus))
+        exitCode = WEXITSTATUS(rawStatus);
+    else
+        exitCode = -1; // abnormal termination — treat as abort
+#endif
+
+    bool aborted = false;
+    if (exitCode != 0)
+    {
+        aborted = true;
+        messageDialog("Message Aborted",
+            "The external editor exited with a non-zero status. Message not posted.");
+    }
+    else
     {
         // Read the temp file contents
         std::ifstream ifs(tmpFile);
@@ -370,14 +392,36 @@ static ExtEditorResult runExternalEditor(const ExternalEditorConfig& edCfg,
                 result.body += line;
             }
         }
-        if (result.body.empty())
+
+        // If the file content is unchanged from what we pre-seeded (or the
+        // file is empty), the user didn't actually write anything — treat
+        // it as an abort so we don't post a bare quote block or nothing.
+        auto normalizeNewlines = [](const string& s) {
+            string out;
+            out.reserve(s.size());
+            for (char c : s) if (c != '\r') out.push_back(c);
+            while (!out.empty() && out.back() == '\n') out.pop_back();
+            return out;
+        };
+        string seedNorm = normalizeNewlines(initialContent);
+        string bodyNorm = normalizeNewlines(result.body);
+        if (bodyNorm.empty() || bodyNorm == seedNorm)
         {
-            messageDialog("Message Aborted", "The message file was empty. Message not posted.");
+            aborted = true;
+            result.body.clear();
+            messageDialog("Message Aborted",
+                "The message was not changed in the editor. Message not posted.");
         }
     }
-    else
+
+    if (aborted)
     {
-        messageDialog("Message Aborted", "The external editor did not exit successfully. Message not posted.");
+        result.body.clear();
+        // Clean up and bail without reading RESULT.ED — the user aborted.
+        std::error_code ec;
+        fs::remove(tmpFile, ec);
+        fs::remove(resultEdFile, ec);
+        return result;
     }
 
     // Read RESULT.ED if it exists (Synchronet-compatible editor result file)
@@ -794,7 +838,8 @@ int main(int argc, char* argv[])
             ConfListResult confResult = showConferenceList(*currentPacket,
                                                            selectedConf, settings,
                                                            &pendingReplies, baseDir,
-                                                           autoResaveRep);
+                                                           autoResaveRep,
+                                                           [](int cn){ return getLastRead(cn); });
 
             switch (confResult)
             {

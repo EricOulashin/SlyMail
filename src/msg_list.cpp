@@ -333,8 +333,23 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
                                  Settings& settings,
                                  vector<QwkReply>* pendingReplies,
                                  const string& baseDir,
-                                 std::function<void()> onPendingEdited)
+                                 std::function<void()> onPendingEdited,
+                                 std::function<int(int)> getLastReadFn)
 {
+    // Returns true if the given conference has any messages newer than the
+    // last-read pointer for that conference.  If no getLastReadFn is provided,
+    // falls back to the old behavior (any messages == new).
+    auto confHasNew = [&](const QwkConference& conf) -> bool {
+        if (conf.messages.empty()) return false;
+        if (!getLastReadFn) return true;
+        int lr = getLastReadFn(conf.number);
+        if (lr < 0) return true;
+        for (const auto& m : conf.messages)
+        {
+            if (m.number > lr) return true;
+        }
+        return false;
+    };
     int selected = 0;
     int scrollOffset = 0;
     bool needFullRedraw = true;
@@ -352,7 +367,7 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
         filteredIdx.clear();
         for (int i = 0; i < static_cast<int>(packet.conferences.size()); ++i)
         {
-            if (settings.onlyShowAreasWithNewMail && packet.conferences[i].messages.empty())
+            if (settings.onlyShowAreasWithNewMail && !confHasNew(packet.conferences[i]))
                 continue;
             filteredIdx.push_back(i);
         }
@@ -406,7 +421,7 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
             bool isSel = (idx == selected);
             const auto& conf = packet.conferences[filteredIdx[idx]];
 
-            bool hasNew = !conf.messages.empty();
+            bool hasNew = confHasNew(conf);
             int msgsCol = COLS - countW - newW - 2;
             int newCol  = COLS - newW - 1;
 

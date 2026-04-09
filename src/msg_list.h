@@ -34,7 +34,8 @@ ConfListResult showConferenceList(QwkPacket& packet, int& selectedConf,
                                  Settings& settings,
                                  std::vector<QwkReply>* pendingReplies = nullptr,
                                  const std::string& baseDir = "",
-                                 std::function<void()> onPendingEdited = nullptr);
+                                 std::function<void()> onPendingEdited = nullptr,
+                                 std::function<int(int)> getLastReadFn = nullptr);
 
 // Show the message list for a conference (DDMsgReader-style lightbar)
 // Matches DDMsgReader2 screenshot: Msg#, From, To, Subject, Date, Time columns

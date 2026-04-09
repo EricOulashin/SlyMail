@@ -4,6 +4,20 @@ All notable changes to SlyMail are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.55] - 2026-04-09
+
+### Added
+- **Edit pending messages**: Added a new hotkey (`E`) from the conference list and the message list that opens a lightbar dialog listing messages the user has already written this session (To / Subject / Date / Time columns). Selecting a message lets the user edit it with the built-in editor or the configured external editor; successful edits are automatically re-saved into the pending-replies list, and if the REP packet has already been written to disk this session, it is silently re-written so the on-disk copy stays in sync.
+- **Type-ahead search in the file/directory browser**: While the file browser is open, typing printable characters builds a prefix and jumps the lightbar to the first filename that matches (case-insensitive). Backspace removes a character; navigation keys clear the buffer; a "Search:" indicator is shown on the status line.
+
+### Changed
+- **"New" conference checkmark now reflects unread state**: The checkmark in the conference list and the "only show areas with new mail" filter now use the per-conference last-read pointer — once every new message in a conference has been read, the checkmark disappears and the conference is filtered out (if that option is enabled).
+- **External editor configuration dialog redraws after file browser**: After choosing an editor executable via the file browser in Ctrl-U user settings (and in the `config` program), the external-editor configuration dialog is now redrawn before prompting for the command-line string, so the file browser residue is wiped.
+
+### Fixed
+- **Edit-pending changes are now actually saved**: Editing a pending message via the built-in editor previously loaded each line without a hard-break, so `getBody()` would re-join everything into a single paragraph and the user's edits were effectively discarded. Loaded lines now carry `hardBreak = true`, and the redundant post-editor "Save changes?" confirmation has been removed — if the user successfully exits the editor, the edit is committed.
+- **External editor abort is now honored**: SlyMail now decodes the real editor exit status via `WIFEXITED`/`WEXITSTATUS` on POSIX. If the editor exits with a non-zero status (e.g., vim's `:cq`), or if the temp file content is identical to what SlyMail pre-seeded (e.g., user quit without typing anything over a quoted block), the message is treated as aborted and is not queued into the REP packet. Previously, aborted external-editor sessions could still result in the "Save REP packet now?" prompt.
+
 ## [0.54] - 2026-04-02
 
 ### Added
