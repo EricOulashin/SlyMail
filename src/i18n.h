@@ -18,16 +18,19 @@
   // otherwise define a no-op stub so the code still compiles.
   #ifdef HAVE_LIBINTL
     #include <libintl.h>
+    #define SLYMAIL_HAS_GETTEXT 1
     #define _(str) gettext(str)
     #define N_(str) str        // no-op marker for string extraction only
   #else
     // No-op stub: English only
+    #define SLYMAIL_HAS_GETTEXT 0
     #define _(str) (str)
     #define N_(str) str        // no-op marker for string extraction only
-    #define gettext(str) (str)
-    #define ngettext(s1, s2, n) ((n) == 1 ? (s1) : (s2))
-    #define bindtextdomain(d, p) ((void)0)
-    #define textdomain(d)        ((void)0)
+    inline const char* gettext(const char* str) { return str; }
+    inline const char* ngettext(const char* s1, const char* s2, unsigned long n) { return (n == 1) ? s1 : s2; }
+    inline const char* bindtextdomain(const char*, const char*) { return ""; }
+    inline const char* bind_textdomain_codeset(const char*, const char*) { return ""; }
+    inline const char* textdomain(const char*) { return ""; }
   #endif
 #else
   // POSIX: Prefer GNU gettext if available; on systems without libintl headers
@@ -36,18 +39,22 @@
   #if defined(__has_include)
     #if __has_include(<libintl.h>)
       #include <libintl.h>
+      #define SLYMAIL_HAS_GETTEXT 1
       #define _(str) gettext(str)
       #define N_(str) str
     #else
+      #define SLYMAIL_HAS_GETTEXT 0
       #define _(str) (str)
       #define N_(str) str
-      #define gettext(str) (str)
-      #define ngettext(s1, s2, n) ((n) == 1 ? (s1) : (s2))
-      #define bindtextdomain(d, p) ((void)0)
-      #define textdomain(d)        ((void)0)
+      inline const char* gettext(const char* str) { return str; }
+      inline const char* ngettext(const char* s1, const char* s2, unsigned long n) { return (n == 1) ? s1 : s2; }
+      inline const char* bindtextdomain(const char*, const char*) { return ""; }
+      inline const char* bind_textdomain_codeset(const char*, const char*) { return ""; }
+      inline const char* textdomain(const char*) { return ""; }
     #endif
   #else
     #include <libintl.h>
+    #define SLYMAIL_HAS_GETTEXT 1
     #define _(str) gettext(str)
     #define N_(str) str
   #endif
