@@ -44,8 +44,16 @@ if [ -f "$PROGRAM_INFO" ]; then
 
     # Update the Markdown source frontmatter to match program_info.h
     if [ -n "$SLYMAIL_VERSION" ] && [ -n "$SLYMAIL_DATE" ]; then
-        sed -i "s/^version: .*/version: \"$SLYMAIL_VERSION\"/" "$SOURCE"
-        sed -i "s/^date: .*/date: \"$SLYMAIL_DATE\"/" "$SOURCE"
+        # sed -i differs between GNU sed and BSD sed (macOS).
+        # GNU: sed -i 's/.../.../' file
+        # BSD: sed -i '' 's/.../.../' file
+        if sed --version >/dev/null 2>&1; then
+            SED_INPLACE=(-i)
+        else
+            SED_INPLACE=(-i '')
+        fi
+        sed "${SED_INPLACE[@]}" "s/^version: .*/version: \"$SLYMAIL_VERSION\"/" "$SOURCE"
+        sed "${SED_INPLACE[@]}" "s/^date: .*/date: \"$SLYMAIL_DATE\"/" "$SOURCE"
     fi
 fi
 
