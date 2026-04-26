@@ -35,10 +35,15 @@ jobs:
           # macOS provides clang++ with C++17 support, ncurses, zip, and unzip
           # out of the box. gettext provides xgettext/msgfmt for .po/.mo files.
           brew install gettext || true
+          # Libraries required by WeasyPrint at runtime (cairo/pango stack).
+          # Without these, `from weasyprint import HTML` fails even if the Python
+          # package is installed.
+          brew install cairo pango gdk-pixbuf libffi || true
           # Don't rely on `brew link` for headers; instead export include/lib paths.
           echo "PATH=$(brew --prefix gettext)/bin:$PATH" >> "$GITHUB_ENV"
           echo "CPPFLAGS=-I$(brew --prefix gettext)/include" >> "$GITHUB_ENV"
           echo "LDFLAGS=-L$(brew --prefix gettext)/lib" >> "$GITHUB_ENV"
+          echo "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib:/usr/local/lib:/usr/lib" >> "$GITHUB_ENV"
           # Python packages for user-manual doc generation
           pip3 install --break-system-packages markdown weasyprint || pip3 install markdown weasyprint || true
 
